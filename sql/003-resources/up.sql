@@ -1,63 +1,43 @@
--- Optional nested folders, projects, and the ownables every protected row hangs from.
-
-CREATE TABLE folders (
+CREATE TABLE resources (
   id UUID PRIMARY KEY,
+  kind authz.resource_kind NOT NULL,
   organization_id UUID NOT NULL REFERENCES organizations (id),
-  archived BOOLEAN NOT NULL DEFAULT FALSE,
+  archived_at TIMESTAMPTZ,
   writers_can_share BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (organization_id, id)
+  UNIQUE (id, kind),
+  UNIQUE (organization_id, id),
+  CHECK ((kind = 'organization') = (id = organization_id))
 );
-ALTER TABLE folders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE folders FORCE ROW LEVEL SECURITY;
+ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE resources FORCE ROW LEVEL SECURITY;
 
--- A root folder has no row here.
-CREATE TABLE folder_parents (
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  folder_id UUID NOT NULL REFERENCES folders (id),
-  parent_id UUID NOT NULL REFERENCES folders (id) CHECK (parent_id <> folder_id),
-  PRIMARY KEY (organization_id, folder_id),
-  FOREIGN KEY (organization_id, folder_id) REFERENCES folders (organization_id, id),
-  FOREIGN KEY (organization_id, parent_id) REFERENCES folders (organization_id, id)
-);
-CREATE UNIQUE INDEX ON folder_parents (folder_id);
-CREATE INDEX ON folder_parents (organization_id, parent_id);
-CREATE INDEX ON folder_parents (parent_id);
-ALTER TABLE folder_parents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE folder_parents FORCE ROW LEVEL SECURITY;
-
-CREATE TABLE projects (
+CREATE TABLE resource_parents (
   id UUID PRIMARY KEY,
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  archived BOOLEAN NOT NULL DEFAULT FALSE,
-  writers_can_share BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (organization_id, id)
+  organization_id UUID NOT NULL,
+  resource_kind authz.resource_kind NOT NULL CHECK (resource_kind IN ('folder', 'project')),
+  parent_id UUID NOT NULL CHECK (parent_id <> id),
+  parent_kind authz.resource_kind GENERATED ALWAYS AS ('folder'::authz.resource_kind) STORED NOT NULL,
+  FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id),
+  FOREIGN KEY (organization_id, parent_id) REFERENCES resources (organization_id, id),
+  FOREIGN KEY (id, resource_kind) REFERENCES resources (id, kind),
+  FOREIGN KEY (parent_id, parent_kind) REFERENCES resources (id, kind)
 );
-ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE projects FORCE ROW LEVEL SECURITY;
+CREATE INDEX ON resource_parents (parent_id);
+ALTER TABLE resource_parents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE resource_parents FORCE ROW LEVEL SECURITY;
 
--- A project directly under its organization has no row here.
-CREATE TABLE project_folders (
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  project_id UUID NOT NULL REFERENCES projects (id),
-  folder_id UUID NOT NULL REFERENCES folders (id),
-  PRIMARY KEY (organization_id, project_id),
-  FOREIGN KEY (organization_id, project_id) REFERENCES projects (organization_id, id),
-  FOREIGN KEY (organization_id, folder_id) REFERENCES folders (organization_id, id)
-);
-CREATE UNIQUE INDEX ON project_folders (project_id);
-CREATE INDEX ON project_folders (organization_id, folder_id);
-CREATE INDEX ON project_folders (folder_id);
-ALTER TABLE project_folders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE project_folders FORCE ROW LEVEL SECURITY;
-
--- Protected child tables reference (id, project_id) ON UPDATE CASCADE, so a move carries their rows.
 CREATE TABLE ownables (
   id UUID PRIMARY KEY,
-  project_id UUID NOT NULL REFERENCES projects (id),
+  organization_id UUID NOT NULL,
+  kind authz.resource_kind GENERATED ALWAYS AS ('ownable'::authz.resource_kind) STORED NOT NULL,
+  project_id UUID NOT NULL,
+  project_kind authz.resource_kind GENERATED ALWAYS AS ('project'::authz.resource_kind) STORED NOT NULL,
   created_by_id UUID NOT NULL REFERENCES users (id),
-  archived BOOLEAN NOT NULL DEFAULT FALSE,
-  writers_can_share BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (id, project_id)
+  UNIQUE (id, project_id),
+  FOREIGN KEY (id, kind) REFERENCES resources (id, kind) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (project_id, project_kind) REFERENCES resources (id, kind),
+  FOREIGN KEY (organization_id, project_id) REFERENCES resources (organization_id, id)
 );
 CREATE INDEX ON ownables (project_id);
 CREATE INDEX ON ownables (created_by_id);

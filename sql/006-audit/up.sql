@@ -1,5 +1,3 @@
--- The append-only record of every change to grants, memberships, invitations, blocks and installations.
-
 -- No foreign keys, so the record outlives the rows, principals and organizations it names.
 CREATE TABLE audit_events (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -9,10 +7,10 @@ CREATE TABLE audit_events (
   original_actor_id UUID,
   installation_id UUID,
   table_name TEXT NOT NULL CHECK (table_name <> '' AND length(table_name) <= 63),
-  operation TEXT NOT NULL CHECK (operation IN ('INSERT', 'UPDATE', 'DELETE')),
-  old JSONB,
-  new JSONB,
-  CHECK (old IS NOT NULL OR new IS NOT NULL)
+  operation authz.audit_operation NOT NULL,
+  old_row JSONB,
+  new_row JSONB,
+  CHECK ((operation = 'INSERT') = (old_row IS NULL) AND (operation = 'DELETE') = (new_row IS NULL))
 );
 CREATE INDEX ON audit_events (organization_id, at);
 ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;

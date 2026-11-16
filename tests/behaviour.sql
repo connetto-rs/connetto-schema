@@ -82,7 +82,11 @@ UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000
 UPDATE resources SET writers_can_share = TRUE WHERE id = '50000000-0000-7000-8000-000000000001';
 SELECT pg_temp.audit_check('archived project rows updated', 'SELECT 1',
   $$SELECT count(*) = 0 FROM resources WHERE kind = 'project' AND writers_can_share$$);
-SELECT authz_write.restore_resource('40000000-0000-7000-8000-000000000001');
+SELECT pg_temp.audit_check('restore under archived organization is refused',
+  $$UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001';
+    UPDATE resources SET archived_at = NULL WHERE id = '40000000-0000-7000-8000-000000000001'$$,
+  $$SELECT archived_at IS NOT NULL FROM resources WHERE id = '40000000-0000-7000-8000-000000000001'$$);
+UPDATE resources SET archived_at = NULL WHERE id = '40000000-0000-7000-8000-000000000001';
 UPDATE resources SET writers_can_share = TRUE WHERE id = '50000000-0000-7000-8000-000000000001';
 SELECT pg_temp.audit_check('restored project rows updated', 'SELECT 1',
   $$SELECT count(*) = 1 FROM resources WHERE kind = 'project' AND writers_can_share$$);
@@ -222,6 +226,12 @@ SELECT pg_temp.audit_check('2 writer cannot enable sharing',
 SELECT pg_temp.audit_check('2 writer cannot archive',
   $$UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000000000001'$$,
   $$SELECT archived_at IS NULL FROM resources WHERE id = '40000000-0000-7000-8000-000000000001'$$, ARRAY['42501']);
+SELECT pg_temp.audit_check('2 writer cannot restore',
+  $$RESET ROLE;
+    UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000000000001';
+    SET ROLE app;
+    UPDATE resources SET archived_at = NULL WHERE id = '40000000-0000-7000-8000-000000000001'$$,
+  $$SELECT archived_at IS NOT NULL FROM resources WHERE id = '40000000-0000-7000-8000-000000000001'$$, ARRAY['42501']);
 SELECT pg_temp.audit_check('6 creator cannot undo admin revocation',
   $$UPDATE share_links SET revoked_at = NULL WHERE id = 'a0000000-0000-7000-8000-000000000001'$$,
   $$SELECT revoked_at IS NOT NULL FROM share_links WHERE id = 'a0000000-0000-7000-8000-000000000001'$$, ARRAY['42501']);
@@ -253,7 +263,7 @@ SET ROLE app;
 SELECT pg_temp.audit_check('database stamps archived_at preserve',
   $$UPDATE resources SET archived_at = '2000-01-01' WHERE id = '40000000-0000-7000-8000-000000000003'$$,
   format('SELECT archived_at = %L::timestamptz FROM resources WHERE id = %L', :'original_archive_time', '40000000-0000-7000-8000-000000000003'));
-SELECT authz_write.restore_resource('40000000-0000-7000-8000-000000000003');
+UPDATE resources SET archived_at = NULL WHERE id = '40000000-0000-7000-8000-000000000003';
 SELECT pg_temp.audit_check('archive restoration keeps null', 'SELECT 1',
   $$SELECT archived_at IS NULL FROM resources WHERE id = '40000000-0000-7000-8000-000000000003'$$);
 SELECT pg_temp.audit_check('database stamps revoked_at update',

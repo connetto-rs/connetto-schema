@@ -483,17 +483,6 @@ BEGIN
 END
 $$;
 
-CREATE FUNCTION authz_write.restore_resource(target_resource UUID) RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  PERFORM authz_write.require_unblocked((SELECT target.organization_id FROM public.resources target WHERE target.id = target_resource));
-  IF target_resource IS NULL OR NOT target_resource IN (SELECT authz.resources_with('admin')) THEN
-    RAISE EXCEPTION 'restoring resource % needs admin on it', target_resource USING ERRCODE = 'insufficient_privilege';
-  END IF;
-  UPDATE public.resources SET archived_at = NULL WHERE id = target_resource;
-END
-$$;
-
 ALTER FUNCTION authz_write.require_support_expiry(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_grant_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_operator_support_expiry() OWNER TO authz_writer;
@@ -518,9 +507,7 @@ ALTER FUNCTION authz_write.create_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.create_child_team(UUID, UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.create_child_resource(UUID, authz.resource_kind, UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.accept_invitation(UUID) OWNER TO authz_writer;
-ALTER FUNCTION authz_write.restore_resource(UUID) OWNER TO authz_writer;
 
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz_write FROM PUBLIC, app;
 GRANT EXECUTE ON FUNCTION authz_write.create_organization(UUID), authz_write.create_child_team(UUID, UUID),
-  authz_write.create_child_resource(UUID, authz.resource_kind, UUID), authz_write.accept_invitation(UUID),
-  authz_write.restore_resource(UUID) TO app;
+  authz_write.create_child_resource(UUID, authz.resource_kind, UUID), authz_write.accept_invitation(UUID) TO app;

@@ -194,8 +194,7 @@ CREATE POLICY audit_events_select ON audit_events FOR SELECT TO app
 CREATE POLICY resources_archived_insert ON resources AS RESTRICTIVE FOR INSERT TO app
   WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(organization_id));
 CREATE POLICY resources_archived_update ON resources AS RESTRICTIVE FOR UPDATE TO app
-  USING (NOT authz.is_archived(id))
-  WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(organization_id));
+  USING (NOT authz.has_archived_ancestor(id));
 CREATE POLICY resources_archived_delete ON resources AS RESTRICTIVE FOR DELETE TO app
   USING (NOT authz.is_archived(id));
 CREATE POLICY ownables_archived_insert ON ownables AS RESTRICTIVE FOR INSERT TO app

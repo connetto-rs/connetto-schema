@@ -149,6 +149,12 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   )
 $$;
 
+CREATE FUNCTION authz.has_archived_ancestor(resource UUID) RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT EXISTS (SELECT 1 FROM public.resource_parents edge WHERE edge.id = resource AND authz.is_archived(edge.parent_id))
+    OR EXISTS (SELECT 1 FROM public.ownables ownable WHERE ownable.id = resource AND authz.is_archived(ownable.project_id))
+$$;
+
 CREATE FUNCTION authz.blocking_organizations() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   SELECT block.organization_id FROM public.organization_blocks block
@@ -170,6 +176,7 @@ ALTER FUNCTION authz.member_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.co_member_users() OWNER TO authz_owner;
 ALTER FUNCTION authz.administered_teams() OWNER TO authz_owner;
 ALTER FUNCTION authz.is_archived(UUID) OWNER TO authz_owner;
+ALTER FUNCTION authz.has_archived_ancestor(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.blocking_organizations() OWNER TO authz_owner;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz FROM PUBLIC, app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA authz TO app;

@@ -86,7 +86,7 @@ CREATE POLICY resources_update ON resources FOR UPDATE TO app
 CREATE POLICY resources_delete ON resources FOR DELETE TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
 
-GRANT SELECT, INSERT, UPDATE (parent_id), DELETE ON resource_parents TO app;
+GRANT SELECT, INSERT, UPDATE (parent_id, parent_kind), DELETE ON resource_parents TO app;
 CREATE POLICY resource_parents_select ON resource_parents FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
 CREATE POLICY resource_parents_insert ON resource_parents FOR INSERT TO app

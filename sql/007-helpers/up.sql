@@ -82,9 +82,6 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
       )
     UNION
     SELECT child.id FROM reached CROSS JOIN LATERAL (
-      SELECT resource.id FROM public.resources resource
-      WHERE resource.organization_id = reached.id AND resource.id <> reached.id
-      UNION ALL
       SELECT parent.id FROM public.resource_parents parent WHERE parent.parent_id = reached.id
       UNION ALL
       SELECT ownable.id FROM public.ownables ownable WHERE ownable.project_id = reached.id
@@ -135,22 +132,20 @@ $$;
 
 CREATE FUNCTION authz.is_archived(resource UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
-  WITH RECURSIVE ancestors (id, depth) AS (
-    SELECT resource, 0
+  WITH RECURSIVE ancestors (id) AS (
+    SELECT resource
     UNION
-    SELECT parent.id, ancestors.depth + 1
+    SELECT parent.id
     FROM ancestors CROSS JOIN LATERAL (
       SELECT edge.parent_id AS id FROM public.resource_parents edge WHERE edge.id = ancestors.id
       UNION ALL
       SELECT ownable.project_id FROM public.ownables ownable WHERE ownable.id = ancestors.id
     ) parent
-    WHERE ancestors.depth < authz.max_tree_depth() + 1
   )
   SELECT EXISTS (
     SELECT 1 FROM ancestors
     JOIN public.resources ancestor ON ancestor.id = ancestors.id
-    JOIN public.resources organization ON organization.id = ancestor.organization_id
-    WHERE ancestor.archived_at IS NOT NULL OR organization.archived_at IS NOT NULL
+    WHERE ancestor.archived_at IS NOT NULL
   )
 $$;
 

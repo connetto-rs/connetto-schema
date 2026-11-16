@@ -182,7 +182,7 @@ BEGIN
     JOIN ancestors ON edge.id = ancestors.id
     WHERE ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
   )
-  SELECT max(ancestors.depth), bool_or(ancestors.id = NEW.id)
+  SELECT max(ancestors.depth) FILTER (WHERE ancestors.id <> NEW.organization_id), bool_or(ancestors.id = NEW.id)
     INTO ancestor_depth, contains_cycle FROM ancestors;
   IF contains_cycle THEN
     RAISE EXCEPTION 'resource % would become its own ancestor', NEW.id USING ERRCODE = 'check_violation';
@@ -195,7 +195,7 @@ BEGIN
     WHERE descendants.depth <= authz.max_tree_depth()
   )
   SELECT max(descendants.depth) INTO descendant_depth FROM descendants;
-  IF ancestor_depth + descendant_depth > authz.max_tree_depth() THEN
+  IF coalesce(ancestor_depth, 0) + descendant_depth > authz.max_tree_depth() THEN
     RAISE EXCEPTION 'resource % would exceed depth %', NEW.id, authz.max_tree_depth() USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
@@ -206,6 +206,26 @@ CREATE TRIGGER team_parents_shape BEFORE INSERT OR UPDATE ON team_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_parent();
 CREATE TRIGGER resource_parents_shape BEFORE INSERT OR UPDATE ON resource_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_parent();
+
+CREATE FUNCTION authz_write.check_resource_edge() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  orphan UUID;
+BEGIN
+  SELECT resource.id INTO orphan FROM public.resources resource
+  WHERE resource.id IN (OLD.id, NEW.id) AND resource.kind IN ('folder', 'project')
+    AND NOT EXISTS (SELECT 1 FROM public.resource_parents edge WHERE edge.id = resource.id);
+  IF orphan IS NOT NULL THEN
+    RAISE EXCEPTION 'resource % requires a parent edge', orphan USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER resources_parent_required AFTER INSERT OR UPDATE ON resources
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
+CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE OR UPDATE ON resource_parents
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
 
 CREATE FUNCTION authz_write.require_organization_admin(target_organization UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -382,18 +402,21 @@ $$;
 CREATE FUNCTION authz_write.create_child_resource(target_resource UUID, target_kind authz.resource_kind, target_parent UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE
-  target_organization UUID := (SELECT ancestor.organization_id FROM public.resources ancestor WHERE ancestor.id = target_parent AND ancestor.kind = 'folder');
+  target_organization UUID;
+  parent_kind authz.resource_kind;
 BEGIN
+  SELECT ancestor.organization_id, ancestor.kind INTO target_organization, parent_kind
+    FROM public.resources ancestor WHERE ancestor.id = target_parent AND ancestor.kind IN ('organization', 'folder');
   PERFORM authz_write.require_kind(target_organization, target_kind, 'admin');
   PERFORM authz_write.require_unblocked(target_organization);
   IF target_kind IS NULL OR target_kind NOT IN ('folder', 'project') OR target_organization IS NULL
     OR NOT target_parent IN (SELECT authz.resources_with('admin'))
     OR authz.is_archived(target_parent) THEN
-    RAISE EXCEPTION 'creating a resource under % needs an administered folder', target_parent USING ERRCODE = 'insufficient_privilege';
+    RAISE EXCEPTION 'creating a resource under % needs an administered organization or folder', target_parent USING ERRCODE = 'insufficient_privilege';
   END IF;
   INSERT INTO public.resources (id, kind, organization_id) VALUES (target_resource, target_kind, target_organization);
-  INSERT INTO public.resource_parents (organization_id, id, resource_kind, parent_id)
-    VALUES (target_organization, target_resource, target_kind, target_parent);
+  INSERT INTO public.resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+    VALUES (target_organization, target_resource, target_kind, target_parent, parent_kind);
 END
 $$;
 
@@ -438,6 +461,7 @@ ALTER FUNCTION authz_write.insert_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_resource_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_last_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_membership_admin() OWNER TO authz_writer;

@@ -46,11 +46,35 @@ SELECT pg_temp.audit_check('team cycle is rejected',
   $$INSERT INTO team_parents (organization_id, id, parent_id) VALUES ('20000000-0000-7000-8000-000000000001', '30000000-0000-7000-8000-000000000001', '30000000-0000-7000-8000-000000000002')$$,
   'SELECT FALSE', ARRAY['23514']);
 -- Folder, project, ownable, then archive and restore.
+BEGIN;
 INSERT INTO resources (id, kind, organization_id) VALUES ('40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001');
+INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+  VALUES ('20000000-0000-7000-8000-000000000001', '40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001', 'organization');
+COMMIT;
+SELECT pg_temp.audit_check('top-level folder has organization edge', 'SELECT 1',
+  $$SELECT EXISTS (SELECT 1 FROM resource_parents WHERE id = '40000000-0000-7000-8000-000000000001' AND parent_id = '20000000-0000-7000-8000-000000000001')$$);
 SELECT authz_write.create_child_resource('40000000-0000-7000-8000-000000000002', 'folder', '40000000-0000-7000-8000-000000000001');
 SELECT authz_write.create_child_resource('50000000-0000-7000-8000-000000000001', 'project', '40000000-0000-7000-8000-000000000002');
-INSERT INTO resources (id, kind, organization_id) VALUES ('50000000-0000-7000-8000-000000000002', 'project', '20000000-0000-7000-8000-000000000001');
+SELECT authz_write.create_child_resource('50000000-0000-7000-8000-000000000002', 'project', '20000000-0000-7000-8000-000000000001');
 INSERT INTO ownables (id, organization_id, project_id, created_by_id) VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
+SELECT pg_temp.audit_check('organization archive reaches nested ownable',
+  $$UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001'$$,
+  $$SELECT authz.is_archived('60000000-0000-7000-8000-000000000001')$$);
+SELECT pg_temp.audit_check('organization archive blocks ownable writes',
+  $$UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001';
+    UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001'$$,
+  $$SELECT project_id = '50000000-0000-7000-8000-000000000001' FROM ownables WHERE id = '60000000-0000-7000-8000-000000000001'$$);
+SELECT pg_temp.audit_check('folder without edge is rejected',
+  $$INSERT INTO resources (id, kind, organization_id) VALUES ('40000000-0000-7000-8000-000000000099', 'folder', '20000000-0000-7000-8000-000000000001')$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('project cannot parent a resource',
+  $$UPDATE resource_parents SET parent_id = '50000000-0000-7000-8000-000000000002', parent_kind = 'project' WHERE id = '40000000-0000-7000-8000-000000000001'$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('required edge cannot be removed',
+  $$DELETE FROM resource_parents WHERE id = '40000000-0000-7000-8000-000000000002'$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('organization edge audit includes typed parent', 'SELECT 1',
+  $$SELECT EXISTS (SELECT 1 FROM audit_events WHERE table_name = 'resource_parents' AND new_row ->> 'id' = '40000000-0000-7000-8000-000000000001' AND new_row ->> 'parent_kind' = 'organization' AND new_row ->> 'parent_id' = '20000000-0000-7000-8000-000000000001')$$);
 UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001';
 SELECT pg_temp.audit_check('moved', 'SELECT 1',
   $$SELECT count(*) = 1 AND bool_and(project_id = '50000000-0000-7000-8000-000000000002') FROM ownables$$);
@@ -85,9 +109,9 @@ SELECT pg_temp.audit_check('last admin cannot be deleted',
 SELECT pg_temp.audit_check('audit events', 'SELECT 1',
   $$SELECT array_agg(table_name || ' ' || operation ORDER BY id) = ARRAY[
     'resources INSERT', 'memberships INSERT', 'grants INSERT', 'teams INSERT',
-    'teams INSERT', 'team_parents INSERT', 'resources INSERT', 'resources INSERT',
-    'resource_parents INSERT', 'resources INSERT', 'resource_parents INSERT',
-    'resources INSERT', 'ownables INSERT', 'resources INSERT', 'ownables UPDATE',
+    'teams INSERT', 'team_parents INSERT', 'resources INSERT', 'resource_parents INSERT',
+    'resources INSERT', 'resource_parents INSERT', 'resources INSERT', 'resource_parents INSERT',
+    'resources INSERT', 'resource_parents INSERT', 'ownables INSERT', 'resources INSERT', 'ownables UPDATE',
     'resources UPDATE', 'resources UPDATE', 'resources UPDATE', 'invitations INSERT',
     'memberships INSERT', 'invitations UPDATE'
   ] AND bool_and(actor_id IS NOT NULL) FROM audit_events$$);
@@ -98,8 +122,15 @@ SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
 SELECT authz_write.create_organization('20000000-0000-7000-8000-000000000002');
 SELECT authz_write.create_organization('20000000-0000-7000-8000-000000000003');
+BEGIN;
 INSERT INTO resources (id, kind, organization_id) VALUES
   ('40000000-0000-7000-8000-000000000003', 'folder', '20000000-0000-7000-8000-000000000002');
+INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+  VALUES ('20000000-0000-7000-8000-000000000002', '40000000-0000-7000-8000-000000000003', 'folder', '20000000-0000-7000-8000-000000000002', 'organization');
+COMMIT;
+SELECT pg_temp.audit_check('resource cannot cross organizations',
+  $$UPDATE resource_parents SET parent_id = '20000000-0000-7000-8000-000000000001' WHERE id = '40000000-0000-7000-8000-000000000003'$$,
+  'SELECT FALSE', ARRAY['23503']);
 INSERT INTO memberships (organization_id, user_id, state) VALUES
   ('20000000-0000-7000-8000-000000000002', '10000000-0000-7000-8000-000000000002', 'active');
 INSERT INTO teams (id, organization_id) VALUES
@@ -166,9 +197,13 @@ SET ROLE app;
 SELECT pg_temp.audit_check('database stamps archived_at update',
   $$UPDATE resources SET archived_at = '2000-01-01' WHERE id = '40000000-0000-7000-8000-000000000003'$$,
   $$SELECT archived_at = now() AND EXISTS (SELECT 1 FROM audit_events WHERE table_name = 'resources' AND new_row ->> 'id' = '40000000-0000-7000-8000-000000000003' AND (new_row ->> 'archived_at')::timestamptz = now()) FROM resources WHERE id = '40000000-0000-7000-8000-000000000003'$$);
+RESET ROLE;
 SELECT pg_temp.audit_check('database stamps archived_at insert',
-  $$INSERT INTO resources (id, kind, organization_id, archived_at) VALUES ('40000000-0000-7000-8000-000000000009', 'folder', '20000000-0000-7000-8000-000000000002', '2000-01-01')$$,
+  $$INSERT INTO resources (id, kind, organization_id, archived_at) VALUES ('40000000-0000-7000-8000-000000000009', 'folder', '20000000-0000-7000-8000-000000000002', '2000-01-01');
+    INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+      VALUES ('20000000-0000-7000-8000-000000000002', '40000000-0000-7000-8000-000000000009', 'folder', '20000000-0000-7000-8000-000000000002', 'organization')$$,
   $$SELECT archived_at = now() AND EXISTS (SELECT 1 FROM audit_events WHERE table_name = 'resources' AND new_row ->> 'id' = '40000000-0000-7000-8000-000000000009' AND (new_row ->> 'archived_at')::timestamptz = now()) FROM resources WHERE id = '40000000-0000-7000-8000-000000000009'$$);
+SET ROLE app;
 UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000000000003';
 SELECT archived_at AS original_archive_time FROM resources WHERE id = '40000000-0000-7000-8000-000000000003' \gset
 RESET ROLE;
@@ -271,3 +306,53 @@ SELECT pg_temp.audit_check('9 organization deletion after link and dependent cle
   $$SELECT NOT EXISTS (SELECT 1 FROM organizations WHERE id = '20000000-0000-7000-8000-000000000003')
     AND NOT EXISTS (SELECT 1 FROM share_links WHERE organization_id = '20000000-0000-7000-8000-000000000003')
     AND NOT EXISTS (SELECT 1 FROM grantees WHERE id = 'a0000000-0000-7000-8000-000000000003')$$);
+
+SET ROLE app;
+SELECT pg_temp.audit_check('organization grant reaches nested ownable',
+  $$SELECT authz_write.create_child_resource('50000000-0000-7000-8000-000000000099', 'project', '40000000-0000-7000-8000-000000000003');
+    INSERT INTO ownables (id, organization_id, project_id, created_by_id)
+      VALUES ('60000000-0000-7000-8000-000000000099', '20000000-0000-7000-8000-000000000002', '50000000-0000-7000-8000-000000000099', '10000000-0000-7000-8000-000000000002')$$,
+  $$SELECT EXISTS (SELECT 1 FROM authz.resources_with('reader') resource_id WHERE resource_id = '60000000-0000-7000-8000-000000000099')$$);
+RESET ROLE;
+SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
+SET ROLE app;
+SELECT pg_temp.audit_check('twenty resource levels exclude organization',
+  $action$DO $body$
+  DECLARE
+    level INTEGER;
+    parent UUID := '20000000-0000-7000-8000-000000000001';
+    child UUID;
+  BEGIN
+    FOR level IN 1..20 LOOP
+      child := ('d0000000-0000-7000-8000-' || lpad(level::text, 12, '0'))::uuid;
+      PERFORM authz_write.create_child_resource(child, CASE WHEN level = 20 THEN 'project'::authz.resource_kind ELSE 'folder'::authz.resource_kind END, parent);
+      parent := child;
+    END LOOP;
+  END
+  $body$;
+  INSERT INTO ownables (id, organization_id, project_id, created_by_id)
+    VALUES ('d0000000-0000-7000-8000-000000000021', '20000000-0000-7000-8000-000000000001', 'd0000000-0000-7000-8000-000000000020', '10000000-0000-7000-8000-000000000001');
+  UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001'$action$,
+  $$SELECT authz.is_archived('d0000000-0000-7000-8000-000000000021')$$);
+SELECT pg_temp.audit_check('twenty-one resource levels are rejected',
+  $action$DO $body$
+  DECLARE
+    level INTEGER;
+    parent UUID := '20000000-0000-7000-8000-000000000001';
+    child UUID;
+  BEGIN
+    FOR level IN 1..21 LOOP
+      child := ('d0000000-0000-7000-8000-' || lpad(level::text, 12, '0'))::uuid;
+      PERFORM authz_write.create_child_resource(child, 'folder', parent);
+      parent := child;
+    END LOOP;
+  END
+  $body$$action$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('resource cycle is rejected',
+  $$UPDATE resource_parents SET parent_id = '40000000-0000-7000-8000-000000000002', parent_kind = 'folder' WHERE id = '40000000-0000-7000-8000-000000000001'$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('folder can move to organization',
+  $$UPDATE resource_parents SET parent_id = '20000000-0000-7000-8000-000000000001', parent_kind = 'organization' WHERE id = '40000000-0000-7000-8000-000000000002'$$,
+  $$SELECT parent_kind = 'organization' FROM resource_parents WHERE id = '40000000-0000-7000-8000-000000000002'$$);
+RESET ROLE;

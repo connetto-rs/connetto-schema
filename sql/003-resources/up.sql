@@ -16,7 +16,7 @@ CREATE TABLE resource_parents (
   organization_id UUID NOT NULL,
   resource_kind authz.resource_kind NOT NULL CHECK (resource_kind IN ('folder', 'project')),
   parent_id UUID NOT NULL CHECK (parent_id <> id),
-  parent_kind authz.resource_kind GENERATED ALWAYS AS ('folder'::authz.resource_kind) STORED NOT NULL,
+  parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
   FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id),
   FOREIGN KEY (organization_id, parent_id) REFERENCES resources (organization_id, id),
   FOREIGN KEY (id, resource_kind) REFERENCES resources (id, kind),

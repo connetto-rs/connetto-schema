@@ -108,7 +108,52 @@ VALUES ('{organization}', '{organization}', '{second_user}', 'user', 'admin');
         f"DELETE FROM grants WHERE resource_id = '{organization}' AND grantee_id = '{first_user}';",
         f"DELETE FROM grants WHERE resource_id = '{organization}' AND grantee_id = '{second_user}';"
     ], f"SELECT count(*) FROM grants WHERE resource_id = '{organization}' AND role = 'admin' AND expires_at IS NULL;", "2")
-    if not team_result or not admin_result:
+
+    def locked_race(name, statements, invariant_query, safe_value):
+        first, second = sessions
+        states = first.request(f"BEGIN ISOLATION LEVEL READ COMMITTED;\n{statements[0]}\n\\echo HELD_STATE :SQLSTATE")
+        states += second.request(f"BEGIN ISOLATION LEVEL READ COMMITTED; SET LOCAL lock_timeout = '100ms';\n{statements[1]}\n\\echo BLOCKED_STATE :SQLSTATE\nROLLBACK;")
+        states += first.request("COMMIT;\n\\echo COMMIT_STATE :SQLSTATE")
+        states += second.request(f"BEGIN ISOLATION LEVEL READ COMMITTED;\n{statements[1]}\n\\echo RETRY_STATE :SQLSTATE\nCOMMIT;")
+        observed = execute(invariant_query)
+        passed = {"HELD_STATE 00000", "BLOCKED_STATE 55P03", "COMMIT_STATE 00000", "RETRY_STATE 23514"} <= set(states) and observed == safe_value
+        print(f"{'PASS' if passed else 'FAIL'} {name} invariant={observed}", flush=True)
+        return passed
+
+    team_lock_result = locked_race("team-cycle read committed", [
+        f"INSERT INTO team_parents (organization_id, id, parent_id) VALUES ('{organization}', '{first_team}', '{second_team}');",
+        f"INSERT INTO team_parents (organization_id, id, parent_id) VALUES ('{organization}', '{second_team}', '{first_team}');"
+    ], f"SELECT count(*) FROM team_parents first_edge JOIN team_parents second_edge ON first_edge.id = second_edge.parent_id AND first_edge.parent_id = second_edge.id WHERE first_edge.organization_id = '{organization}';", "0")
+    admin_lock_result = locked_race("last-admin read committed", [
+        f"DELETE FROM grants WHERE resource_id = '{organization}' AND grantee_id = '{first_user}'; SET CONSTRAINTS ALL IMMEDIATE;",
+        f"SELECT set_config('app.user_id', '{second_user}', true); DELETE FROM grants WHERE resource_id = '{organization}' AND grantee_id = '{second_user}'; SET CONSTRAINTS ALL IMMEDIATE;"
+    ], f"SELECT count(*) FROM grants WHERE resource_id = '{organization}' AND role = 'admin' AND expires_at IS NULL;", "1")
+    support_results = []
+    for operator_first in (True, False):
+        support_user = str(uuid.uuid4())
+        execute(f"INSERT INTO users (id) VALUES ('{support_user}');")
+        operator_statement = f"RESET ROLE; INSERT INTO platform_operators (id) VALUES ('{support_user}');"
+        grant_statement = f"RESET ROLE; INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('{organization}', '{organization}', '{support_user}', 'user', 'reader');"
+        statements = [operator_statement, grant_statement] if operator_first else [grant_statement, operator_statement]
+        support_results.append(locked_race(f"support grant operator_first={operator_first}", statements,
+            f"SELECT count(*) FROM grants permission JOIN platform_operators operator ON operator.id = permission.grantee_id WHERE operator.id = '{support_user}' AND permission.expires_at IS NULL;", "0"))
+    for isolation_level in ("REPEATABLE READ", "SERIALIZABLE"):
+        for operator_first in (True, False):
+            support_user = str(uuid.uuid4())
+            execute(f"INSERT INTO users (id) VALUES ('{support_user}');")
+            operator_statement = f"INSERT INTO platform_operators (id) VALUES ('{support_user}');"
+            grant_statement = f"INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('{organization}', '{organization}', '{support_user}', 'user', 'reader');"
+            statements = [operator_statement, grant_statement] if operator_first else [grant_statement, operator_statement]
+            first, second = sessions
+            states = first.request(f"RESET ROLE; BEGIN ISOLATION LEVEL {isolation_level}; {statements[0]}\n\\echo HELD_STATE :SQLSTATE")
+            states += second.request(f"RESET ROLE; BEGIN ISOLATION LEVEL {isolation_level}; SELECT id FROM users WHERE id = '{support_user}';\n\\echo SNAPSHOT_STATE :SQLSTATE")
+            states += first.request("COMMIT;\n\\echo COMMIT_STATE :SQLSTATE")
+            states += second.request(f"{statements[1]}\n\\echo STALE_STATE :SQLSTATE\nROLLBACK;")
+            observed = execute(f"SELECT count(*) FROM grants permission JOIN platform_operators operator ON operator.id = permission.grantee_id WHERE operator.id = '{support_user}' AND permission.expires_at IS NULL;")
+            passed = {"HELD_STATE 00000", "SNAPSHOT_STATE 00000", "COMMIT_STATE 00000", "STALE_STATE 40001"} <= set(states) and observed == "0"
+            print(f"{'PASS' if passed else 'FAIL'} support grant {isolation_level} operator_first={operator_first} invariant={observed}", flush=True)
+            support_results.append(passed)
+    if not all((team_result, admin_result, team_lock_result, admin_lock_result, *support_results)):
         raise SystemExit(1)
 finally:
     for session in sessions:

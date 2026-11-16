@@ -10,7 +10,8 @@ GRANT EXECUTE ON FUNCTION authz.capped_kinds(authz.role), authz.blocking_organiz
   authz.verified_email(), authz.max_tree_depth() TO authz_writer;
 
 GRANT INSERT, DELETE ON grantees TO authz_writer;
-GRANT SELECT ON grantees, users, app_installations TO authz_writer;
+GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
+GRANT UPDATE (id) ON users TO authz_writer;
 GRANT SELECT, INSERT ON organizations, teams, team_parents, resources, resource_parents, grants TO authz_writer;
 GRANT UPDATE (id) ON organizations TO authz_writer;
 GRANT SELECT, INSERT ON memberships TO authz_writer;
@@ -19,6 +20,44 @@ GRANT DELETE ON grants TO authz_writer;
 GRANT SELECT, UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT UPDATE (archived_at) ON resources TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
+
+CREATE FUNCTION authz_write.require_support_expiry(target_user UUID) RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  -- A row version change makes stale snapshots fail serialization.
+  UPDATE public.users SET id = id WHERE id = target_user;
+  IF EXISTS (
+    SELECT 1 FROM public.platform_operators operator
+    JOIN public.grants permission ON permission.grantee_id = operator.id
+    WHERE operator.id = target_user
+      AND (permission.expires_at IS NULL OR NOT pg_catalog.isfinite(permission.expires_at))
+  ) THEN
+    RAISE EXCEPTION 'support grants require a finite expiry' USING ERRCODE = 'check_violation';
+  END IF;
+END
+$$;
+
+CREATE FUNCTION authz_write.check_grant_support_expiry() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  PERFORM authz_write.require_support_expiry(NEW.grantee_id);
+  RETURN NEW;
+END
+$$;
+
+CREATE FUNCTION authz_write.check_operator_support_expiry() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  PERFORM authz_write.require_support_expiry(NEW.id);
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER grants_support_expiry AFTER INSERT OR UPDATE ON grants
+  FOR EACH ROW WHEN (NEW.grantee_kind = 'user' AND (NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at)))
+  EXECUTE FUNCTION authz_write.check_grant_support_expiry();
+CREATE TRIGGER platform_operators_support_expiry AFTER INSERT OR UPDATE ON platform_operators
+  FOR EACH ROW EXECUTE FUNCTION authz_write.check_operator_support_expiry();
 
 CREATE FUNCTION authz_write.require_kind(target_organization UUID, target_kind authz.resource_kind, minimum_role authz.role) RETURNS VOID
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
@@ -124,6 +163,18 @@ CREATE TRIGGER ownables_resource AFTER INSERT ON ownables
 CREATE TRIGGER ownables_resource_removed AFTER DELETE ON ownables
   FOR EACH ROW EXECUTE FUNCTION authz_write.delete_ownable_resource();
 
+CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
+    RAISE EXCEPTION 'organization checks require read committed or serializable' USING ERRCODE = 'invalid_transaction_state';
+  END IF;
+  PERFORM organization.id FROM public.organizations organization
+    WHERE organization.id = target_organization FOR NO KEY UPDATE;
+  RETURN FOUND;
+END
+$$;
+
 CREATE FUNCTION authz_write.check_team_parent() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE
@@ -131,11 +182,7 @@ DECLARE
   descendant_depth INTEGER;
   contains_cycle BOOLEAN;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
-    RAISE EXCEPTION 'tree checks require read committed or serializable' USING ERRCODE = 'invalid_transaction_state';
-  END IF;
-  PERFORM organization.id FROM public.organizations organization
-    WHERE organization.id = NEW.organization_id FOR NO KEY UPDATE;
+  PERFORM authz_write.lock_organization(NEW.organization_id);
   WITH RECURSIVE ancestors (id, depth) AS (
     SELECT NEW.parent_id, 1
     UNION
@@ -170,11 +217,7 @@ DECLARE
   descendant_depth INTEGER;
   contains_cycle BOOLEAN;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
-    RAISE EXCEPTION 'tree checks require read committed or serializable' USING ERRCODE = 'invalid_transaction_state';
-  END IF;
-  PERFORM organization.id FROM public.organizations organization
-    WHERE organization.id = NEW.organization_id FOR NO KEY UPDATE;
+  PERFORM authz_write.lock_organization(NEW.organization_id);
   WITH RECURSIVE ancestors (id, depth) AS (
     SELECT NEW.parent_id, 1
     UNION
@@ -230,12 +273,10 @@ CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE OR UPDATE ON re
 CREATE FUNCTION authz_write.require_organization_admin(target_organization UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
-    RAISE EXCEPTION 'admin checks require read committed or serializable' USING ERRCODE = 'invalid_transaction_state';
+  IF NOT authz_write.lock_organization(target_organization) THEN
+    RETURN;
   END IF;
-  PERFORM organization.id FROM public.organizations organization
-    WHERE organization.id = target_organization FOR NO KEY UPDATE;
-  IF FOUND AND NOT EXISTS (
+  IF NOT EXISTS (
     SELECT 1 FROM public.grants permission
     JOIN public.memberships membership
       ON membership.organization_id = permission.organization_id AND membership.user_id = permission.grantee_id
@@ -362,6 +403,10 @@ CREATE TRIGGER resources_audit AFTER INSERT OR DELETE ON resources
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER resources_update_audit AFTER UPDATE ON resources
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER apps_audit AFTER INSERT OR DELETE ON apps
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER apps_update_audit AFTER UPDATE ON apps
+  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
 
 CREATE FUNCTION authz_write.create_organization(target_organization UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -369,7 +414,6 @@ DECLARE
   caller UUID := authz.caller_id();
 BEGIN
   PERFORM authz_write.require_kind(target_organization, 'organization', 'admin');
-  PERFORM authz_write.require_unblocked(target_organization);
   IF caller IS NULL OR NOT EXISTS (SELECT 1 FROM public.users principal WHERE principal.id = caller) THEN
     RAISE EXCEPTION 'only a signed-in user creates an organization' USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -387,7 +431,6 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE
   target_organization UUID := (SELECT ancestor.organization_id FROM public.teams ancestor WHERE ancestor.id = target_parent);
 BEGIN
-  PERFORM authz_write.require_kind(target_organization, 'organization', 'admin');
   PERFORM authz_write.require_unblocked(target_organization);
   IF target_organization IS NULL OR NOT (
     target_parent IN (SELECT authz.administered_teams()) OR target_organization IN (SELECT authz.resources_with('admin'))
@@ -451,6 +494,9 @@ BEGIN
 END
 $$;
 
+ALTER FUNCTION authz_write.require_support_expiry(UUID) OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_grant_support_expiry() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_operator_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_kind(UUID, authz.resource_kind, authz.role) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_unblocked(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.insert_grantee() OWNER TO authz_writer;
@@ -459,6 +505,7 @@ ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.insert_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_ownable_resource() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_edge() OWNER TO authz_writer;

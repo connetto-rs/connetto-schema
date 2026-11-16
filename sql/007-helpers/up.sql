@@ -152,7 +152,7 @@ $$;
 CREATE FUNCTION authz.blocking_organizations() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   SELECT block.organization_id FROM public.organization_blocks block
-  WHERE block.principal_id = authz.caller_id()
+  WHERE block.principal_id IN (authz.caller_id(), authz.acting_installation_id())
     AND (block.expires_at IS NULL OR block.expires_at > now())
 $$;
 

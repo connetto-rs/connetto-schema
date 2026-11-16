@@ -35,7 +35,7 @@ CREATE TABLE organization_blocks (
   principal_kind authz.grantee_kind NOT NULL CHECK (principal_kind IN ('user', 'installation')),
   expires_at TIMESTAMPTZ,
   PRIMARY KEY (organization_id, principal_id),
-  FOREIGN KEY (principal_id, principal_kind) REFERENCES grantees (id, kind)
+  FOREIGN KEY (principal_id, principal_kind) REFERENCES grantees (id, kind) ON DELETE CASCADE
 );
 CREATE INDEX ON organization_blocks (principal_id);
 ALTER TABLE organization_blocks ENABLE ROW LEVEL SECURITY;

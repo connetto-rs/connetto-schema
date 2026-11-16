@@ -118,6 +118,44 @@ SELECT pg_temp.audit_check('audit events', 'SELECT 1',
 
 RESET ROLE;
 
+SELECT pg_temp.audit_check('support operator cannot receive a permanent grant',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SET LOCAL ROLE app;
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES
+      ('20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader')$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('permanent grant prevents operator registration',
+  $$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES
+      ('20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader');
+    INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002')$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('support grant accepts any finite expiry',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SET LOCAL ROLE app;
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role, expires_at) VALUES
+      ('20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader', now() + interval '100 years')$$,
+  $$SELECT expires_at = now() + interval '100 years' FROM grants WHERE resource_id = '20000000-0000-7000-8000-000000000001' AND grantee_id = '10000000-0000-7000-8000-000000000002'$$);
+SELECT pg_temp.audit_check('support grant expiry cannot be removed',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SET LOCAL ROLE app;
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role, expires_at) VALUES
+      ('20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader', now() + interval '1 day');
+    UPDATE grants SET expires_at = NULL WHERE resource_id = '20000000-0000-7000-8000-000000000001' AND grantee_id = '10000000-0000-7000-8000-000000000002'$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('support grant rejects infinite expiry',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SET LOCAL ROLE app;
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role, expires_at) VALUES
+      ('20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader', 'infinity')$$,
+  'SELECT FALSE', ARRAY['23514']);
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+SELECT pg_temp.audit_check('ordinary user may receive a permanent grant',
+  $$SET LOCAL ROLE app;
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES
+      ('20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader')$$,
+  $$SELECT expires_at IS NULL FROM grants WHERE resource_id = '20000000-0000-7000-8000-000000000001' AND grantee_id = '10000000-0000-7000-8000-000000000002'$$);
+COMMIT;
+
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
 SELECT authz_write.create_organization('20000000-0000-7000-8000-000000000002');
@@ -168,8 +206,9 @@ SELECT set_config('app.installation_id', '90000000-0000-7000-8000-000000000001',
 SELECT pg_temp.audit_check('1 installation cannot read another organization', 'SELECT 1',
   $$SELECT NOT EXISTS (SELECT 1 FROM resources WHERE id = '40000000-0000-7000-8000-000000000003')$$);
 SELECT pg_temp.audit_check('1 installation cannot write another organization',
-  $$UPDATE resources SET writers_can_share = TRUE WHERE id = '40000000-0000-7000-8000-000000000003'$$,
-  $$SELECT NOT EXISTS (SELECT 1 FROM resources WHERE id = '40000000-0000-7000-8000-000000000003' AND writers_can_share)$$, ARRAY['42501']);
+  $$UPDATE resources SET writers_can_share = TRUE WHERE id = '40000000-0000-7000-8000-000000000003';
+    SELECT set_config('app.installation_id', '', true)$$,
+  $$SELECT NOT writers_can_share FROM resources WHERE id = '40000000-0000-7000-8000-000000000003'$$, ARRAY['42501']);
 SELECT pg_temp.audit_check('1 membership helper stays in installation organization', 'SELECT 1',
   $$SELECT NOT EXISTS (SELECT 1 FROM authz.member_organizations() organization_id WHERE organization_id = '20000000-0000-7000-8000-000000000002')$$);
 SELECT pg_temp.audit_check('1 team administration stays in installation organization', 'SELECT 1',
@@ -248,9 +287,12 @@ SELECT pg_temp.audit_check('4 deactivated member loses direct admin',
 SELECT pg_temp.audit_check('4 removed member loses direct admin',
   $$DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000002' AND user_id = '10000000-0000-7000-8000-000000000001'$$,
   $$SELECT NOT EXISTS (SELECT 1 FROM authz.resources_with('admin') resource_id WHERE resource_id = '20000000-0000-7000-8000-000000000002')$$);
-SELECT pg_temp.audit_check('7 move policy requires source admin and destination writer', 'SELECT 1',
-  $$SELECT qual LIKE '%resources_with(''admin''%' AND with_check LIKE '%project_id%' AND with_check LIKE '%resources_with(''writer''%'
-    FROM pg_policies WHERE schemaname = 'public' AND tablename = 'ownables' AND policyname = 'ownables_update'$$);
+SELECT pg_temp.audit_check('7 move needs destination writer',
+  $$SELECT authz_write.create_child_resource('50000000-0000-7000-8000-000000000003', 'project', '20000000-0000-7000-8000-000000000001');
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'admin');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000003' WHERE id = '60000000-0000-7000-8000-000000000001'$$,
+  'SELECT FALSE', ARRAY['42501']);
 SELECT pg_temp.audit_check('7 admin can move ownable',
   $$UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000001' WHERE id = '60000000-0000-7000-8000-000000000001'$$,
   $$SELECT project_id = '50000000-0000-7000-8000-000000000001' FROM ownables WHERE id = '60000000-0000-7000-8000-000000000001'$$);

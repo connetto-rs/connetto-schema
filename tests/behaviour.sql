@@ -33,12 +33,43 @@ CREATE FUNCTION pg_temp.act(principal TEXT) RETURNS VOID LANGUAGE sql AS $$
          set_config('app.link_ids', '', false), set_config('app.original_actor_id', '', false),
          set_config('app.verified_email', '', false)
 $$;
+CREATE FUNCTION pg_temp.found_organization(organization UUID) RETURNS VOID LANGUAGE sql AS $$
+  INSERT INTO public.organizations (id, created_by_id) VALUES (organization, authz.caller_id());
+  INSERT INTO public.resources (id, kind, organization_id) VALUES (organization, 'organization', organization);
+  INSERT INTO public.memberships (organization_id, user_id, state) VALUES (organization, authz.caller_id(), 'active');
+  INSERT INTO public.grants (organization_id, resource_id, grantee_id, grantee_kind, role)
+    VALUES (organization, organization, authz.caller_id(), 'user', 'admin');
+$$;
+CREATE FUNCTION pg_temp.create_child_team(team UUID, parent UUID) RETURNS VOID LANGUAGE sql AS $$
+  INSERT INTO public.teams (id, organization_id)
+    SELECT team, ancestor.organization_id FROM public.teams ancestor WHERE ancestor.id = parent;
+  INSERT INTO public.team_parents (organization_id, id, parent_id)
+    SELECT ancestor.organization_id, team, parent FROM public.teams ancestor WHERE ancestor.id = parent;
+$$;
+CREATE FUNCTION pg_temp.create_child_resource(child UUID, child_kind authz.resource_kind, parent UUID) RETURNS VOID LANGUAGE sql AS $$
+  INSERT INTO public.resources (id, kind, organization_id)
+    SELECT child, child_kind, ancestor.organization_id FROM public.resources ancestor WHERE ancestor.id = parent;
+  INSERT INTO public.resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+    SELECT ancestor.organization_id, child, child_kind, parent, ancestor.kind FROM public.resources ancestor WHERE ancestor.id = parent;
+$$;
+CREATE FUNCTION pg_temp.create_ownable(ownable UUID, organization UUID, project UUID, creator UUID) RETURNS VOID LANGUAGE sql AS $$
+  INSERT INTO public.ownables (id, organization_id, project_id, created_by_id) VALUES (ownable, organization, project, creator);
+  INSERT INTO public.resources (id, kind, organization_id) VALUES (ownable, 'ownable', organization);
+$$;
+CREATE FUNCTION pg_temp.accept_invitation(invitation UUID) RETURNS VOID LANGUAGE sql AS $$
+  INSERT INTO public.memberships (organization_id, user_id, state)
+    SELECT pending.organization_id, authz.caller_id(), 'active' FROM public.invitations pending WHERE pending.id = invitation;
+  UPDATE public.invitations SET accepted_by_id = authz.caller_id() WHERE id = invitation;
+$$;
+GRANT EXECUTE ON FUNCTION pg_temp.found_organization(UUID), pg_temp.create_child_team(UUID, UUID),
+  pg_temp.create_child_resource(UUID, authz.resource_kind, UUID), pg_temp.create_ownable(UUID, UUID, UUID, UUID),
+  pg_temp.accept_invitation(UUID) TO app;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
-SELECT authz_write.create_organization('20000000-0000-7000-8000-000000000001');
+SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000001');
 SELECT pg_temp.audit_check('org visible', 'SELECT 1', 'SELECT count(*) = 1 FROM organizations');
 INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001');
-SELECT authz_write.create_child_team('30000000-0000-7000-8000-000000000002', '30000000-0000-7000-8000-000000000001');
+SELECT pg_temp.create_child_team('30000000-0000-7000-8000-000000000002', '30000000-0000-7000-8000-000000000001');
 SELECT pg_temp.audit_check('team cannot parent itself',
   $$UPDATE team_parents SET parent_id = '30000000-0000-7000-8000-000000000002' WHERE id = '30000000-0000-7000-8000-000000000002'$$,
   'SELECT FALSE', ARRAY['23514']);
@@ -53,10 +84,10 @@ INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, par
 COMMIT;
 SELECT pg_temp.audit_check('top-level folder has organization edge', 'SELECT 1',
   $$SELECT EXISTS (SELECT 1 FROM resource_parents WHERE id = '40000000-0000-7000-8000-000000000001' AND parent_id = '20000000-0000-7000-8000-000000000001')$$);
-SELECT authz_write.create_child_resource('40000000-0000-7000-8000-000000000002', 'folder', '40000000-0000-7000-8000-000000000001');
-SELECT authz_write.create_child_resource('50000000-0000-7000-8000-000000000001', 'project', '40000000-0000-7000-8000-000000000002');
-SELECT authz_write.create_child_resource('50000000-0000-7000-8000-000000000002', 'project', '20000000-0000-7000-8000-000000000001');
-INSERT INTO ownables (id, organization_id, project_id, created_by_id) VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
+SELECT pg_temp.create_child_resource('40000000-0000-7000-8000-000000000002', 'folder', '40000000-0000-7000-8000-000000000001');
+SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000001', 'project', '40000000-0000-7000-8000-000000000002');
+SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000002', 'project', '20000000-0000-7000-8000-000000000001');
+SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
 SELECT pg_temp.audit_check('organization archive reaches nested ownable',
   $$UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001'$$,
   $$SELECT authz.is_archived('60000000-0000-7000-8000-000000000001')$$);
@@ -97,12 +128,12 @@ SELECT pg_temp.act('10000000-0000-7000-8000-000000000002');
 SELECT set_config('app.verified_email', 'b@example.com', false);
 SET ROLE app;
 SELECT pg_temp.audit_check('invitee sees invitation', 'SELECT 1', 'SELECT count(*) = 1 FROM invitations');
-SELECT authz_write.accept_invitation('70000000-0000-7000-8000-000000000001');
+SELECT pg_temp.accept_invitation('70000000-0000-7000-8000-000000000001');
 SELECT pg_temp.audit_check('member sees memberships', 'SELECT 1', 'SELECT count(*) = 2 FROM memberships');
 SELECT pg_temp.audit_check('member without grant sees projects', 'SELECT 1',
   $$SELECT count(*) = 0 FROM resources WHERE kind = 'project'$$);
 SELECT pg_temp.audit_check('member cannot create child team',
-  $$SELECT authz_write.create_child_team('30000000-0000-7000-8000-000000000003', '30000000-0000-7000-8000-000000000001')$$,
+  $$SELECT pg_temp.create_child_team('30000000-0000-7000-8000-000000000003', '30000000-0000-7000-8000-000000000001')$$,
   'SELECT FALSE', ARRAY['42501']);
 RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
@@ -162,8 +193,8 @@ COMMIT;
 
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
-SELECT authz_write.create_organization('20000000-0000-7000-8000-000000000002');
-SELECT authz_write.create_organization('20000000-0000-7000-8000-000000000003');
+SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000002');
+SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000003');
 BEGIN;
 INSERT INTO resources (id, kind, organization_id) VALUES
   ('40000000-0000-7000-8000-000000000003', 'folder', '20000000-0000-7000-8000-000000000002');
@@ -298,7 +329,7 @@ SELECT pg_temp.audit_check('4 removed member loses direct admin',
   $$DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000002' AND user_id = '10000000-0000-7000-8000-000000000001'$$,
   $$SELECT NOT EXISTS (SELECT 1 FROM authz.resources_with('admin') resource_id WHERE resource_id = '20000000-0000-7000-8000-000000000002')$$);
 SELECT pg_temp.audit_check('7 move needs destination writer',
-  $$SELECT authz_write.create_child_resource('50000000-0000-7000-8000-000000000003', 'project', '20000000-0000-7000-8000-000000000001');
+  $$SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000003', 'project', '20000000-0000-7000-8000-000000000001');
     INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'admin');
     SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
     UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000003' WHERE id = '60000000-0000-7000-8000-000000000001'$$,
@@ -361,9 +392,8 @@ SELECT pg_temp.audit_check('9 organization deletion after link and dependent cle
 
 SET ROLE app;
 SELECT pg_temp.audit_check('organization grant reaches nested ownable',
-  $$SELECT authz_write.create_child_resource('50000000-0000-7000-8000-000000000099', 'project', '40000000-0000-7000-8000-000000000003');
-    INSERT INTO ownables (id, organization_id, project_id, created_by_id)
-      VALUES ('60000000-0000-7000-8000-000000000099', '20000000-0000-7000-8000-000000000002', '50000000-0000-7000-8000-000000000099', '10000000-0000-7000-8000-000000000002')$$,
+  $$SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000099', 'project', '40000000-0000-7000-8000-000000000003');
+    SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000099', '20000000-0000-7000-8000-000000000002', '50000000-0000-7000-8000-000000000099', '10000000-0000-7000-8000-000000000002')$$,
   $$SELECT EXISTS (SELECT 1 FROM authz.resources_with('reader') resource_id WHERE resource_id = '60000000-0000-7000-8000-000000000099')$$);
 RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
@@ -377,13 +407,12 @@ SELECT pg_temp.audit_check('twenty resource levels exclude organization',
   BEGIN
     FOR level IN 1..20 LOOP
       child := ('d0000000-0000-7000-8000-' || lpad(level::text, 12, '0'))::uuid;
-      PERFORM authz_write.create_child_resource(child, CASE WHEN level = 20 THEN 'project'::authz.resource_kind ELSE 'folder'::authz.resource_kind END, parent);
+      PERFORM pg_temp.create_child_resource(child, CASE WHEN level = 20 THEN 'project'::authz.resource_kind ELSE 'folder'::authz.resource_kind END, parent);
       parent := child;
     END LOOP;
   END
   $body$;
-  INSERT INTO ownables (id, organization_id, project_id, created_by_id)
-    VALUES ('d0000000-0000-7000-8000-000000000021', '20000000-0000-7000-8000-000000000001', 'd0000000-0000-7000-8000-000000000020', '10000000-0000-7000-8000-000000000001');
+  SELECT pg_temp.create_ownable('d0000000-0000-7000-8000-000000000021', '20000000-0000-7000-8000-000000000001', 'd0000000-0000-7000-8000-000000000020', '10000000-0000-7000-8000-000000000001');
   UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001'$action$,
   $$SELECT authz.is_archived('d0000000-0000-7000-8000-000000000021')$$);
 SELECT pg_temp.audit_check('twenty-one resource levels are rejected',
@@ -395,7 +424,7 @@ SELECT pg_temp.audit_check('twenty-one resource levels are rejected',
   BEGIN
     FOR level IN 1..21 LOOP
       child := ('d0000000-0000-7000-8000-' || lpad(level::text, 12, '0'))::uuid;
-      PERFORM authz_write.create_child_resource(child, 'folder', parent);
+      PERFORM pg_temp.create_child_resource(child, 'folder', parent);
       parent := child;
     END LOOP;
   END
@@ -407,4 +436,81 @@ SELECT pg_temp.audit_check('resource cycle is rejected',
 SELECT pg_temp.audit_check('folder can move to organization',
   $$UPDATE resource_parents SET parent_id = '20000000-0000-7000-8000-000000000001', parent_kind = 'organization' WHERE id = '40000000-0000-7000-8000-000000000002'$$,
   $$SELECT parent_kind = 'organization' FROM resource_parents WHERE id = '40000000-0000-7000-8000-000000000002'$$);
+SELECT pg_temp.audit_check('organization without an admin is refused',
+  $$INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000005', '10000000-0000-7000-8000-000000000001')$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('organization creator is the caller',
+  $$INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000005', '10000000-0000-7000-8000-000000000002')$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('only the founder takes the founding grant',
+  $$SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000006');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES
+      ('20000000-0000-7000-8000-000000000006', '20000000-0000-7000-8000-000000000006', '10000000-0000-7000-8000-000000000002', 'user', 'admin')$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('demoted founder cannot grant itself admin again',
+  $$SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000006');
+    INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000006', '10000000-0000-7000-8000-000000000002', 'active');
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES
+      ('20000000-0000-7000-8000-000000000006', '20000000-0000-7000-8000-000000000006', '10000000-0000-7000-8000-000000000002', 'user', 'admin');
+    DELETE FROM grants WHERE resource_id = '20000000-0000-7000-8000-000000000006' AND grantee_id = '10000000-0000-7000-8000-000000000001';
+    SET CONSTRAINTS ALL IMMEDIATE;
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES
+      ('20000000-0000-7000-8000-000000000006', '20000000-0000-7000-8000-000000000006', '10000000-0000-7000-8000-000000000001', 'user', 'admin')$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('removed founder cannot rejoin',
+  $$SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000006');
+    INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000006', '10000000-0000-7000-8000-000000000002', 'active');
+    INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES
+      ('20000000-0000-7000-8000-000000000006', '20000000-0000-7000-8000-000000000006', '10000000-0000-7000-8000-000000000002', 'user', 'admin');
+    SET CONSTRAINTS ALL IMMEDIATE;
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000006' AND user_id = '10000000-0000-7000-8000-000000000001';
+    SET CONSTRAINTS ALL IMMEDIATE;
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000001', true);
+    INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000006', '10000000-0000-7000-8000-000000000001', 'active')$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('folder admin creates a child folder',
+  $$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('40000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'admin');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SELECT pg_temp.create_child_resource('40000000-0000-7000-8000-00000000000a', 'folder', '40000000-0000-7000-8000-000000000002')$$,
+  $$SELECT EXISTS (SELECT 1 FROM resource_parents WHERE id = '40000000-0000-7000-8000-00000000000a' AND parent_id = '40000000-0000-7000-8000-000000000002')$$);
+SELECT pg_temp.audit_check('folder admin cannot create at the organization root',
+  $$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('40000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'admin');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    INSERT INTO resources (id, kind, organization_id) VALUES ('40000000-0000-7000-8000-00000000000a', 'folder', '20000000-0000-7000-8000-000000000001');
+    INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+      VALUES ('20000000-0000-7000-8000-000000000001', '40000000-0000-7000-8000-00000000000a', 'folder', '20000000-0000-7000-8000-000000000001', 'organization')$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('team admin creates a child team',
+  $$INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-000000000009', '20000000-0000-7000-8000-000000000001');
+    INSERT INTO team_members (team_id, organization_id, user_id, team_role) VALUES ('30000000-0000-7000-8000-000000000009', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'admin');
+    SET CONSTRAINTS ALL IMMEDIATE;
+    SET CONSTRAINTS ALL DEFERRED;
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SELECT pg_temp.create_child_team('30000000-0000-7000-8000-00000000000a', '30000000-0000-7000-8000-000000000009')$$,
+  $$SELECT EXISTS (SELECT 1 FROM team_parents WHERE id = '30000000-0000-7000-8000-00000000000a' AND parent_id = '30000000-0000-7000-8000-000000000009')$$);
+SELECT pg_temp.audit_check('team admin cannot create a root team',
+  $$INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-000000000009', '20000000-0000-7000-8000-000000000001');
+    INSERT INTO team_members (team_id, organization_id, user_id, team_role) VALUES ('30000000-0000-7000-8000-000000000009', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'admin');
+    SET CONSTRAINTS ALL IMMEDIATE;
+    SET CONSTRAINTS ALL DEFERRED;
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-00000000000a', '20000000-0000-7000-8000-000000000001')$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('ownable resource requires its ownable',
+  $$INSERT INTO resources (id, kind, organization_id) VALUES ('60000000-0000-7000-8000-00000000000a', 'ownable', '20000000-0000-7000-8000-000000000001')$$,
+  'SELECT FALSE', ARRAY['23514']);
+SELECT pg_temp.audit_check('invitee accepts only for itself',
+  $$INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) VALUES ('70000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001', 'c@example.com', now() + interval '1 day', '10000000-0000-7000-8000-000000000001');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SELECT set_config('app.verified_email', 'c@example.com', true);
+    UPDATE invitations SET accepted_by_id = '10000000-0000-7000-8000-000000000001' WHERE id = '70000000-0000-7000-8000-000000000003'$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('accepted invitation cannot be reused',
+  $$SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SELECT set_config('app.verified_email', 'b@example.com', true);
+    DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000001' AND user_id = '10000000-0000-7000-8000-000000000002';
+    INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'active')$$,
+  'SELECT FALSE', ARRAY['42501']);
 RESET ROLE;

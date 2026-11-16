@@ -69,7 +69,13 @@ try:
 SET statement_timeout = '20s';
 INSERT INTO users (id) VALUES ('{first_user}'), ('{second_user}');
 SET app.user_id = '{first_user}';
-SELECT authz_write.create_organization('{organization}');
+BEGIN;
+INSERT INTO organizations (id, created_by_id) VALUES ('{organization}', '{first_user}');
+INSERT INTO resources (id, kind, organization_id) VALUES ('{organization}', 'organization', '{organization}');
+INSERT INTO memberships (organization_id, user_id, state) VALUES ('{organization}', '{first_user}', 'active');
+INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role)
+VALUES ('{organization}', '{organization}', '{first_user}', 'user', 'admin');
+COMMIT;
 INSERT INTO memberships (organization_id, user_id, state) VALUES ('{organization}', '{second_user}', 'active');
 INSERT INTO teams (id, organization_id) VALUES ('{first_team}', '{organization}'), ('{second_team}', '{organization}');
 INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role)

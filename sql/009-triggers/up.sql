@@ -2,22 +2,20 @@ CREATE SCHEMA authz_write;
 REVOKE ALL ON SCHEMA authz_write FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE authz_writer REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-GRANT USAGE ON SCHEMA authz_write TO app, authz_writer;
+GRANT USAGE ON SCHEMA authz_write TO authz_writer;
 GRANT USAGE ON SCHEMA authz TO authz_writer;
-GRANT EXECUTE ON FUNCTION authz.capped_kinds(authz.role), authz.blocking_organizations(),
-  authz.resources_with(authz.role), authz.is_archived(UUID), authz.administered_teams(),
-  authz.caller_id(), authz.acting_installation_id(), authz.original_actor_id(),
-  authz.verified_email(), authz.max_tree_depth() TO authz_writer;
+GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grants(), authz.administered_teams(),
+  authz.invited_organizations(), authz.caller_id(), authz.acting_installation_id(), authz.original_actor_id(),
+  authz.max_tree_depth() TO authz_writer;
 
 GRANT INSERT, DELETE ON grantees TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
 GRANT UPDATE (id) ON users TO authz_writer;
-GRANT SELECT, INSERT ON organizations, teams, team_parents, resources, resource_parents, grants TO authz_writer;
+GRANT SELECT ON organizations, teams, team_parents, resources, resource_parents, ownables, grants TO authz_writer;
 GRANT UPDATE (id) ON organizations TO authz_writer;
-GRANT SELECT, INSERT ON memberships TO authz_writer;
+GRANT SELECT ON memberships TO authz_writer;
 GRANT INSERT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
-GRANT SELECT, UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT UPDATE (archived_at) ON resources TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
 
@@ -58,28 +56,6 @@ CREATE TRIGGER grants_support_expiry AFTER INSERT OR UPDATE ON grants
   EXECUTE FUNCTION authz_write.check_grant_support_expiry();
 CREATE TRIGGER platform_operators_support_expiry AFTER INSERT OR UPDATE ON platform_operators
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_operator_support_expiry();
-
-CREATE FUNCTION authz_write.require_kind(target_organization UUID, target_kind authz.resource_kind, minimum_role authz.role) RETURNS VOID
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  IF authz.acting_installation_id() IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM authz.capped_kinds(minimum_role) permission
-    WHERE permission.organization_id = target_organization AND permission.kind = target_kind
-  ) THEN
-    RAISE EXCEPTION 'installation may not exercise % on % in %', minimum_role, target_kind, target_organization
-      USING ERRCODE = 'insufficient_privilege';
-  END IF;
-END
-$$;
-
-CREATE FUNCTION authz_write.require_unblocked(target_organization UUID) RETURNS VOID
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  IF target_organization IN (SELECT authz.blocking_organizations()) THEN
-    RAISE EXCEPTION 'organization % blocks the caller', target_organization USING ERRCODE = 'insufficient_privilege';
-  END IF;
-END
-$$;
 
 CREATE FUNCTION authz_write.insert_grantee() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -142,14 +118,6 @@ CREATE TRIGGER share_links_stamp_revoked_at BEFORE INSERT OR UPDATE OF revoked_a
   FOR EACH ROW EXECUTE FUNCTION authz.stamp_revoked_at();
 REVOKE EXECUTE ON FUNCTION authz.stamp_archived_at(), authz.stamp_revoked_at() FROM PUBLIC, app;
 
-CREATE FUNCTION authz_write.insert_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  INSERT INTO public.resources (id, kind, organization_id) VALUES (NEW.id, NEW.kind, NEW.organization_id);
-  RETURN NULL;
-END
-$$;
-
 CREATE FUNCTION authz_write.delete_ownable_resource() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
@@ -158,10 +126,22 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER ownables_resource AFTER INSERT ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.insert_ownable_resource();
 CREATE TRIGGER ownables_resource_removed AFTER DELETE ON ownables
   FOR EACH ROW EXECUTE FUNCTION authz_write.delete_ownable_resource();
+
+CREATE FUNCTION authz_write.check_ownable_resource() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.ownables ownable WHERE ownable.id = NEW.id) THEN
+    RAISE EXCEPTION 'resource % requires its ownable', NEW.id USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER resources_ownable_required AFTER INSERT ON resources
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind = 'ownable')
+  EXECUTE FUNCTION authz_write.check_ownable_resource();
 
 CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -270,20 +250,41 @@ CREATE CONSTRAINT TRIGGER resources_parent_required AFTER INSERT OR UPDATE ON re
 CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE OR UPDATE ON resource_parents
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
 
-CREATE FUNCTION authz_write.require_organization_admin(target_organization UUID) RETURNS VOID
+CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
-  IF NOT authz_write.lock_organization(target_organization) THEN
-    RETURN;
+  IF NOT NEW.organization_id IN (SELECT authz.resources_with('admin')) AND NOT EXISTS (
+    SELECT 1 FROM public.team_parents edge
+    WHERE edge.id = NEW.id AND edge.parent_id IN (SELECT authz.administered_teams())
+  ) THEN
+    RAISE EXCEPTION 'team % requires an edge to a team the caller administers', NEW.id USING ERRCODE = 'check_violation';
   END IF;
-  IF NOT EXISTS (
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER teams_parent_required AFTER INSERT ON teams
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_edge();
+
+CREATE FUNCTION authz_write.has_active_admin(target_organization UUID) RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT EXISTS (
     SELECT 1 FROM public.grants permission
     JOIN public.memberships membership
       ON membership.organization_id = permission.organization_id AND membership.user_id = permission.grantee_id
     WHERE permission.resource_id = target_organization AND permission.organization_id = target_organization
       AND permission.role = 'admin' AND permission.expires_at IS NULL AND permission.grantee_kind = 'user'
       AND membership.state = 'active'
-  ) THEN
+  )
+$$;
+
+CREATE FUNCTION authz_write.require_organization_admin(target_organization UUID) RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT authz_write.lock_organization(target_organization) THEN
+    RETURN;
+  END IF;
+  IF NOT authz_write.has_active_admin(target_organization) THEN
     RAISE EXCEPTION 'organization % would lose its last admin', target_organization USING ERRCODE = 'check_violation';
   END IF;
 END
@@ -316,6 +317,60 @@ $$;
 CREATE CONSTRAINT TRIGGER memberships_last_admin AFTER UPDATE OR DELETE ON memberships
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (OLD.state = 'active')
   EXECUTE FUNCTION authz_write.check_membership_admin();
+
+CREATE FUNCTION authz_write.check_founded() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT authz_write.has_active_admin(NEW.id) THEN
+    RAISE EXCEPTION 'organization % requires an active admin', NEW.id USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER organizations_admin_required AFTER INSERT ON organizations
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_founded();
+
+CREATE FUNCTION authz_write.require_unfounded(target_organization UUID) RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.grants permission
+    WHERE permission.resource_id = target_organization AND permission.organization_id = target_organization
+      AND permission.role = 'admin'
+  ) THEN
+    RAISE EXCEPTION 'organization % is already founded', target_organization USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END
+$$;
+
+CREATE FUNCTION authz_write.check_founder_membership() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT NEW.organization_id IN (SELECT authz.resources_with('admin'))
+    AND NOT NEW.organization_id IN (SELECT authz.invited_organizations()) THEN
+    PERFORM authz_write.require_unfounded(NEW.organization_id);
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE FUNCTION authz_write.check_founder_grant() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT (NEW.resource_id, NEW.role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share) THEN
+    PERFORM authz_write.require_unfounded(NEW.organization_id);
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER memberships_founder BEFORE INSERT ON memberships
+  FOR EACH ROW WHEN (NEW.user_id = authz.caller_id()) EXECUTE FUNCTION authz_write.check_founder_membership();
+CREATE TRIGGER grants_founder BEFORE INSERT ON grants
+  FOR EACH ROW WHEN (NEW.resource_id = NEW.organization_id AND NEW.grantee_id = authz.caller_id()
+    AND NEW.grantee_kind = 'user' AND NEW.role = 'admin')
+  EXECUTE FUNCTION authz_write.check_founder_grant();
 
 CREATE FUNCTION authz_write.delete_membership_grants() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -408,106 +463,29 @@ CREATE TRIGGER apps_audit AFTER INSERT OR DELETE ON apps
 CREATE TRIGGER apps_update_audit AFTER UPDATE ON apps
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
 
-CREATE FUNCTION authz_write.create_organization(target_organization UUID) RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE
-  caller UUID := authz.caller_id();
-BEGIN
-  PERFORM authz_write.require_kind(target_organization, 'organization', 'admin');
-  IF caller IS NULL OR NOT EXISTS (SELECT 1 FROM public.users principal WHERE principal.id = caller) THEN
-    RAISE EXCEPTION 'only a signed-in user creates an organization' USING ERRCODE = 'insufficient_privilege';
-  END IF;
-  INSERT INTO public.organizations (id) VALUES (target_organization);
-  INSERT INTO public.resources (id, kind, organization_id, archived_at)
-    VALUES (target_organization, 'organization', target_organization, NULL);
-  INSERT INTO public.memberships (organization_id, user_id, state) VALUES (target_organization, caller, 'active');
-  INSERT INTO public.grants (organization_id, resource_id, grantee_id, grantee_kind, role)
-    VALUES (target_organization, target_organization, caller, 'user', 'admin');
-END
-$$;
-
-CREATE FUNCTION authz_write.create_child_team(target_team UUID, target_parent UUID) RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE
-  target_organization UUID := (SELECT ancestor.organization_id FROM public.teams ancestor WHERE ancestor.id = target_parent);
-BEGIN
-  PERFORM authz_write.require_unblocked(target_organization);
-  IF target_organization IS NULL OR NOT (
-    target_parent IN (SELECT authz.administered_teams()) OR target_organization IN (SELECT authz.resources_with('admin'))
-  ) THEN
-    RAISE EXCEPTION 'creating a team under % needs admin on it', target_parent USING ERRCODE = 'insufficient_privilege';
-  END IF;
-  INSERT INTO public.teams (id, organization_id) VALUES (target_team, target_organization);
-  INSERT INTO public.team_parents (organization_id, id, parent_id) VALUES (target_organization, target_team, target_parent);
-END
-$$;
-
-CREATE FUNCTION authz_write.create_child_resource(target_resource UUID, target_kind authz.resource_kind, target_parent UUID) RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE
-  target_organization UUID;
-  parent_kind authz.resource_kind;
-BEGIN
-  SELECT ancestor.organization_id, ancestor.kind INTO target_organization, parent_kind
-    FROM public.resources ancestor WHERE ancestor.id = target_parent AND ancestor.kind IN ('organization', 'folder');
-  PERFORM authz_write.require_kind(target_organization, target_kind, 'admin');
-  PERFORM authz_write.require_unblocked(target_organization);
-  IF target_kind IS NULL OR target_kind NOT IN ('folder', 'project') OR target_organization IS NULL
-    OR NOT target_parent IN (SELECT authz.resources_with('admin'))
-    OR authz.is_archived(target_parent) THEN
-    RAISE EXCEPTION 'creating a resource under % needs an administered organization or folder', target_parent USING ERRCODE = 'insufficient_privilege';
-  END IF;
-  INSERT INTO public.resources (id, kind, organization_id) VALUES (target_resource, target_kind, target_organization);
-  INSERT INTO public.resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
-    VALUES (target_organization, target_resource, target_kind, target_parent, parent_kind);
-END
-$$;
-
-CREATE FUNCTION authz_write.accept_invitation(target_invitation UUID) RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE
-  caller UUID := authz.caller_id();
-  target_organization UUID;
-BEGIN
-  SELECT pending.organization_id INTO target_organization FROM public.invitations pending
-  WHERE pending.id = target_invitation AND pending.accepted_by_id IS NULL AND pending.expires_at > now()
-    AND pending.email = authz.verified_email()
-  FOR UPDATE;
-  IF caller IS NULL OR target_organization IS NULL OR NOT EXISTS (SELECT 1 FROM public.users principal WHERE principal.id = caller) THEN
-    RAISE EXCEPTION 'invitation % is not pending for the caller', target_invitation USING ERRCODE = 'insufficient_privilege';
-  END IF;
-  PERFORM authz_write.require_kind(target_organization, 'organization', 'writer');
-  PERFORM authz_write.require_unblocked(target_organization);
-  INSERT INTO public.memberships (organization_id, user_id, state) VALUES (target_organization, caller, 'active');
-  UPDATE public.invitations SET accepted_by_id = caller WHERE id = target_invitation;
-END
-$$;
-
 ALTER FUNCTION authz_write.require_support_expiry(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_grant_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_operator_support_expiry() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.require_kind(UUID, authz.resource_kind, authz.role) OWNER TO authz_writer;
-ALTER FUNCTION authz_write.require_unblocked(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.insert_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.insert_ownable_resource() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_edge() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_team_edge() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.has_active_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_last_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_membership_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_membership_grants() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_founded() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.require_unfounded(UUID) OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_founder_membership() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_founder_grant() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.record_audit_event() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.create_organization(UUID) OWNER TO authz_writer;
-ALTER FUNCTION authz_write.create_child_team(UUID, UUID) OWNER TO authz_writer;
-ALTER FUNCTION authz_write.create_child_resource(UUID, authz.resource_kind, UUID) OWNER TO authz_writer;
-ALTER FUNCTION authz_write.accept_invitation(UUID) OWNER TO authz_writer;
 
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz_write FROM PUBLIC, app;
-GRANT EXECUTE ON FUNCTION authz_write.create_organization(UUID), authz_write.create_child_team(UUID, UUID),
-  authz_write.create_child_resource(UUID, authz.resource_kind, UUID), authz_write.accept_invitation(UUID) TO app;

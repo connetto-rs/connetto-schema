@@ -1,8 +1,10 @@
 CREATE TABLE organizations (
   id UUID PRIMARY KEY,
   kind authz.grantee_kind GENERATED ALWAYS AS ('organization'::authz.grantee_kind) STORED NOT NULL,
+  created_by_id UUID NOT NULL REFERENCES users (id),
   FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) DEFERRABLE INITIALLY DEFERRED
 );
+CREATE INDEX ON organizations (created_by_id);
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE organizations FORCE ROW LEVEL SECURITY;
 

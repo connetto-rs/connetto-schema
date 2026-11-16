@@ -1,7 +1,7 @@
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE authz_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
-GRANT SELECT ON grantees, memberships, team_members, team_parents, share_links,
+GRANT SELECT ON grantees, organizations, memberships, invitations, teams, team_members, team_parents, share_links,
   resources, resource_parents, ownables, grants, organization_blocks, installation_permissions TO authz_owner;
 
 CREATE FUNCTION authz.caller_id() RETURNS UUID
@@ -130,6 +130,33 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
         IN (SELECT * FROM authz.capped_kinds('admin')))
 $$;
 
+CREATE FUNCTION authz.team_admin_organizations() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT team.organization_id FROM public.teams team WHERE team.id IN (SELECT authz.administered_teams())
+$$;
+
+CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT resource.organization_id FROM public.resources resource WHERE resource.id IN (SELECT authz.resources_with(min_role))
+$$;
+
+CREATE FUNCTION authz.founded_organizations() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT organization.id FROM public.organizations organization WHERE organization.created_by_id = authz.caller_id()
+$$;
+
+CREATE FUNCTION authz.pending_invitations() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT invitation.id FROM public.invitations invitation
+  WHERE invitation.email = authz.verified_email() AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
+$$;
+
+CREATE FUNCTION authz.invited_organizations() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT invitation.organization_id FROM public.invitations invitation
+  WHERE invitation.id IN (SELECT authz.pending_invitations())
+$$;
+
 CREATE FUNCTION authz.is_archived(resource UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   WITH RECURSIVE ancestors (id) AS (
@@ -175,6 +202,11 @@ ALTER FUNCTION authz.sharable_grants() OWNER TO authz_owner;
 ALTER FUNCTION authz.member_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.co_member_users() OWNER TO authz_owner;
 ALTER FUNCTION authz.administered_teams() OWNER TO authz_owner;
+ALTER FUNCTION authz.team_admin_organizations() OWNER TO authz_owner;
+ALTER FUNCTION authz.organizations_with(authz.role) OWNER TO authz_owner;
+ALTER FUNCTION authz.founded_organizations() OWNER TO authz_owner;
+ALTER FUNCTION authz.pending_invitations() OWNER TO authz_owner;
+ALTER FUNCTION authz.invited_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.is_archived(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.has_archived_ancestor(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.blocking_organizations() OWNER TO authz_owner;

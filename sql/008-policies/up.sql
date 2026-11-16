@@ -26,10 +26,11 @@ CREATE POLICY memberships_select ON memberships FOR SELECT TO app
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY memberships_insert ON memberships FOR INSERT TO app
-  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
+  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.resources_with('admin'))) AND invitation_id IS NULL)
     OR (organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
-      AND user_id = (SELECT authz.caller_id()) AND state = 'active' AND (SELECT authz.acting_installation_id()) IS NULL)
-    OR (organization_id = ANY (ARRAY(SELECT authz.invited_organizations()))
+      AND user_id = (SELECT authz.caller_id()) AND state = 'active' AND invitation_id IS NULL
+      AND (SELECT authz.acting_installation_id()) IS NULL)
+    OR (invitation_id = ANY (ARRAY(SELECT authz.pending_invitations()))
       AND user_id = (SELECT authz.caller_id()) AND state = 'active'
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer')))));
@@ -44,7 +45,6 @@ CREATE POLICY memberships_delete ON memberships FOR DELETE TO app
 
 GRANT SELECT, DELETE ON invitations TO app;
 GRANT INSERT (id, organization_id, email, expires_at, invited_by_id) ON invitations TO app;
-GRANT UPDATE (accepted_by_id) ON invitations TO app;
 CREATE POLICY invitations_select ON invitations FOR SELECT TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
     OR (email = (SELECT authz.verified_email())
@@ -52,11 +52,6 @@ CREATE POLICY invitations_select ON invitations FOR SELECT TO app
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY invitations_insert ON invitations FOR INSERT TO app
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.resources_with('admin'))) AND invited_by_id = (SELECT authz.caller_id()));
-CREATE POLICY invitations_accept ON invitations FOR UPDATE TO app
-  USING (id = ANY (ARRAY(SELECT authz.pending_invitations()))
-    AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer'))))
-  WITH CHECK (accepted_by_id = (SELECT authz.caller_id()));
 CREATE POLICY invitations_delete ON invitations FOR DELETE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
 

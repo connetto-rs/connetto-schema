@@ -151,12 +151,6 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   WHERE invitation.email = authz.verified_email() AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
 $$;
 
-CREATE FUNCTION authz.invited_organizations() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
-  SELECT invitation.organization_id FROM public.invitations invitation
-  WHERE invitation.id IN (SELECT authz.pending_invitations())
-$$;
-
 CREATE FUNCTION authz.is_archived(resource UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   WITH RECURSIVE ancestors (id) AS (
@@ -206,7 +200,6 @@ ALTER FUNCTION authz.team_admin_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.organizations_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.founded_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.pending_invitations() OWNER TO authz_owner;
-ALTER FUNCTION authz.invited_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.is_archived(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.has_archived_ancestor(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.blocking_organizations() OWNER TO authz_owner;

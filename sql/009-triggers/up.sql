@@ -5,15 +5,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE authz_writer REVOKE EXECUTE ON FUNCTIONS FROM 
 GRANT USAGE ON SCHEMA authz_write TO authz_writer;
 GRANT USAGE ON SCHEMA authz TO authz_writer;
 GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grants(), authz.administered_teams(),
-  authz.invited_organizations(), authz.caller_id(), authz.acting_installation_id(), authz.original_actor_id(),
-  authz.max_tree_depth() TO authz_writer;
+  authz.caller_id(), authz.acting_installation_id(), authz.original_actor_id(), authz.max_tree_depth() TO authz_writer;
 
 GRANT INSERT, DELETE ON grantees TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
 GRANT UPDATE (id) ON users TO authz_writer;
 GRANT SELECT ON organizations, teams, team_parents, resources, resource_parents, ownables, grants TO authz_writer;
 GRANT UPDATE (id) ON organizations TO authz_writer;
-GRANT SELECT ON memberships TO authz_writer;
+GRANT SELECT ON memberships, invitations TO authz_writer;
+GRANT UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT INSERT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
 GRANT UPDATE (archived_at) ON resources TO authz_writer;
@@ -347,8 +347,7 @@ $$;
 CREATE FUNCTION authz_write.check_founder_membership() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
-  IF NOT NEW.organization_id IN (SELECT authz.resources_with('admin'))
-    AND NOT NEW.organization_id IN (SELECT authz.invited_organizations()) THEN
+  IF NOT NEW.organization_id IN (SELECT authz.resources_with('admin')) THEN
     PERFORM authz_write.require_unfounded(NEW.organization_id);
   END IF;
   RETURN NEW;
@@ -366,7 +365,8 @@ END
 $$;
 
 CREATE TRIGGER memberships_founder BEFORE INSERT ON memberships
-  FOR EACH ROW WHEN (NEW.user_id = authz.caller_id()) EXECUTE FUNCTION authz_write.check_founder_membership();
+  FOR EACH ROW WHEN (NEW.user_id = authz.caller_id() AND NEW.invitation_id IS NULL)
+  EXECUTE FUNCTION authz_write.check_founder_membership();
 CREATE TRIGGER grants_founder BEFORE INSERT ON grants
   FOR EACH ROW WHEN (NEW.resource_id = NEW.organization_id AND NEW.grantee_id = authz.caller_id()
     AND NEW.grantee_kind = 'user' AND NEW.role = 'admin')
@@ -383,6 +383,17 @@ $$;
 
 CREATE TRIGGER memberships_grants_removed AFTER DELETE ON memberships
   FOR EACH ROW EXECUTE FUNCTION authz_write.delete_membership_grants();
+
+CREATE FUNCTION authz_write.accept_invitation() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  UPDATE public.invitations SET accepted_by_id = NEW.user_id WHERE id = NEW.invitation_id;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER memberships_invitation_accepted AFTER INSERT ON memberships
+  FOR EACH ROW WHEN (NEW.invitation_id IS NOT NULL) EXECUTE FUNCTION authz_write.accept_invitation();
 
 CREATE FUNCTION authz_write.record_audit_event() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -482,6 +493,7 @@ ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_write
 ALTER FUNCTION authz_write.check_last_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_membership_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_membership_grants() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.accept_invitation() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_founded() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_unfounded(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_founder_membership() OWNER TO authz_writer;

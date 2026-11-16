@@ -57,9 +57,8 @@ CREATE FUNCTION pg_temp.create_ownable(ownable UUID, organization UUID, project 
   INSERT INTO public.resources (id, kind, organization_id) VALUES (ownable, 'ownable', organization);
 $$;
 CREATE FUNCTION pg_temp.accept_invitation(invitation UUID) RETURNS VOID LANGUAGE sql AS $$
-  INSERT INTO public.memberships (organization_id, user_id, state)
-    SELECT pending.organization_id, authz.caller_id(), 'active' FROM public.invitations pending WHERE pending.id = invitation;
-  UPDATE public.invitations SET accepted_by_id = authz.caller_id() WHERE id = invitation;
+  INSERT INTO public.memberships (organization_id, user_id, state, invitation_id)
+    SELECT pending.organization_id, authz.caller_id(), 'active', invitation FROM public.invitations pending WHERE pending.id = invitation;
 $$;
 GRANT EXECUTE ON FUNCTION pg_temp.found_organization(UUID), pg_temp.create_child_team(UUID, UUID),
   pg_temp.create_child_resource(UUID, authz.resource_kind, UUID), pg_temp.create_ownable(UUID, UUID, UUID, UUID),
@@ -129,6 +128,8 @@ SELECT set_config('app.verified_email', 'b@example.com', false);
 SET ROLE app;
 SELECT pg_temp.audit_check('invitee sees invitation', 'SELECT 1', 'SELECT count(*) = 1 FROM invitations');
 SELECT pg_temp.accept_invitation('70000000-0000-7000-8000-000000000001');
+SELECT pg_temp.audit_check('server marks the invitation accepted', 'SELECT 1',
+  $$SELECT accepted_by_id = '10000000-0000-7000-8000-000000000002' FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001'$$);
 SELECT pg_temp.audit_check('member sees memberships', 'SELECT 1', 'SELECT count(*) = 2 FROM memberships');
 SELECT pg_temp.audit_check('member without grant sees projects', 'SELECT 1',
   $$SELECT count(*) = 0 FROM resources WHERE kind = 'project'$$);
@@ -501,16 +502,41 @@ SELECT pg_temp.audit_check('team admin cannot create a root team',
 SELECT pg_temp.audit_check('ownable resource requires its ownable',
   $$INSERT INTO resources (id, kind, organization_id) VALUES ('60000000-0000-7000-8000-00000000000a', 'ownable', '20000000-0000-7000-8000-000000000001')$$,
   'SELECT FALSE', ARRAY['23514']);
-SELECT pg_temp.audit_check('invitee accepts only for itself',
+SELECT pg_temp.audit_check('client cannot mark an invitation accepted',
   $$INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) VALUES ('70000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001', 'c@example.com', now() + interval '1 day', '10000000-0000-7000-8000-000000000001');
     SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
     SELECT set_config('app.verified_email', 'c@example.com', true);
-    UPDATE invitations SET accepted_by_id = '10000000-0000-7000-8000-000000000001' WHERE id = '70000000-0000-7000-8000-000000000003'$$,
+    UPDATE invitations SET accepted_by_id = '10000000-0000-7000-8000-000000000002' WHERE id = '70000000-0000-7000-8000-000000000003'$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('invitation admits only its invitee',
+  $$INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) VALUES ('70000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001', 'c@example.com', now() + interval '1 day', '10000000-0000-7000-8000-000000000001');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SELECT set_config('app.verified_email', 'b@example.com', true);
+    DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000001' AND user_id = '10000000-0000-7000-8000-000000000002';
+    INSERT INTO memberships (organization_id, user_id, state, invitation_id) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'active', '70000000-0000-7000-8000-000000000003')$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('invitation admits only its organization',
+  $$INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) VALUES ('70000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001', 'c@example.com', now() + interval '1 day', '10000000-0000-7000-8000-000000000001');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SELECT set_config('app.verified_email', 'c@example.com', true);
+    INSERT INTO memberships (organization_id, user_id, state, invitation_id) VALUES ('20000000-0000-7000-8000-000000000003', '10000000-0000-7000-8000-000000000002', 'active', '70000000-0000-7000-8000-000000000003')$$,
+  'SELECT FALSE', ARRAY['23503']);
+SELECT pg_temp.audit_check('admin cannot accept an invitation for a member',
+  $$INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) VALUES ('70000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001', 'c@example.com', now() + interval '1 day', '10000000-0000-7000-8000-000000000001');
+    DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000001' AND user_id = '10000000-0000-7000-8000-000000000002';
+    INSERT INTO memberships (organization_id, user_id, state, invitation_id) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'active', '70000000-0000-7000-8000-000000000003')$$,
   'SELECT FALSE', ARRAY['42501']);
 SELECT pg_temp.audit_check('accepted invitation cannot be reused',
   $$SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
     SELECT set_config('app.verified_email', 'b@example.com', true);
     DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000001' AND user_id = '10000000-0000-7000-8000-000000000002';
-    INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'active')$$,
+    INSERT INTO memberships (organization_id, user_id, state, invitation_id) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'active', '70000000-0000-7000-8000-000000000001')$$,
   'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('accepted invitation stays while its member stays',
+  $$DELETE FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001'$$,
+  'SELECT FALSE', ARRAY['23503']);
+SELECT pg_temp.audit_check('accepted invitation can be deleted once its member leaves',
+  $$DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000001' AND user_id = '10000000-0000-7000-8000-000000000002';
+    DELETE FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001'$$,
+  $$SELECT NOT EXISTS (SELECT 1 FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001')$$);
 RESET ROLE;

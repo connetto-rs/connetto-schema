@@ -8,30 +8,32 @@ CREATE INDEX ON organizations (created_by_id);
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE organizations FORCE ROW LEVEL SECURITY;
 
-CREATE TABLE memberships (
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  user_id UUID NOT NULL REFERENCES users (id),
-  state authz.membership_state NOT NULL,
-  PRIMARY KEY (organization_id, user_id)
-);
-CREATE INDEX ON memberships (user_id);
-ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
-ALTER TABLE memberships FORCE ROW LEVEL SECURITY;
-
 CREATE TABLE invitations (
   id UUID PRIMARY KEY,
   organization_id UUID NOT NULL REFERENCES organizations (id),
   email TEXT NOT NULL CHECK (email <> '' AND length(email) <= 320 AND email LIKE '%_@_%' AND email = lower(email)),
   expires_at TIMESTAMPTZ NOT NULL,
   invited_by_id UUID NOT NULL REFERENCES users (id),
-  accepted_by_id UUID REFERENCES users (id)
+  accepted_by_id UUID REFERENCES users (id),
+  UNIQUE (organization_id, id)
 );
-CREATE INDEX ON invitations (organization_id);
 CREATE INDEX ON invitations (invited_by_id);
 CREATE INDEX ON invitations (accepted_by_id);
 CREATE INDEX ON invitations (email);
 ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invitations FORCE ROW LEVEL SECURITY;
+
+CREATE TABLE memberships (
+  organization_id UUID NOT NULL REFERENCES organizations (id),
+  user_id UUID NOT NULL REFERENCES users (id),
+  state authz.membership_state NOT NULL,
+  invitation_id UUID UNIQUE,
+  PRIMARY KEY (organization_id, user_id),
+  FOREIGN KEY (organization_id, invitation_id) REFERENCES invitations (organization_id, id)
+);
+CREATE INDEX ON memberships (user_id);
+ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE memberships FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE teams (
   id UUID PRIMARY KEY,

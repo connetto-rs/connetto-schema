@@ -77,6 +77,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 name = "connetto-schema-lint"
 version = "0.0.0"
 dependencies = [
+ "rls2fga",
  "sqlippy",
  "sqlparser",
 ]
@@ -223,6 +224,12 @@ dependencies = [
  "lazy_static",
  "regex",
 ]
+
+[[package]]
+name = "itoa"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "jiff"
@@ -476,6 +483,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "rls2fga"
+version = "0.1.0"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#5890948de7d27a5825ad990b415b7de1d7b636b5"
+dependencies = [
+ "rls2fga-types",
+ "serde",
+ "serde_json",
+ "sql-traits",
+ "sql-values 0.6.0",
+ "sqlparser",
+ "thiserror",
+]
+
+[[package]]
+name = "rls2fga-types"
+version = "0.1.0"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#5890948de7d27a5825ad990b415b7de1d7b636b5"
+dependencies = [
+ "serde",
+ "sql-values 0.6.0",
+ "thiserror",
+]
+
+[[package]]
 name = "rustc-std-workspace-alloc"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -486,6 +517,16 @@ name = "seahash"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
+
+[[package]]
+name = "serde"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
 
 [[package]]
 name = "serde_core"
@@ -505,6 +546,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.10",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.154"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -532,7 +586,7 @@ dependencies = [
  "geometric-traits",
  "once_cell",
  "sha2",
- "sql-values",
+ "sql-values 0.5.1",
  "sqlparser",
  "sqlparser-canonicalize",
  "sqlparser-plpgsql",
@@ -545,6 +599,15 @@ name = "sql-values"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa63391be723434747b0c2ffc2e7270f4a7a476d083b55cdda961c4773d1d5e4"
+dependencies = [
+ "jiff",
+ "thiserror",
+]
+
+[[package]]
+name = "sql-values"
+version = "0.6.0"
+source = "git+https://github.com/connetto-rs/sql-values?branch=main#7c18726d135c2f8d685d3d89915bf6d228d84351"
 dependencies = [
  "jiff",
  "thiserror",
@@ -570,6 +633,7 @@ source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#039c
 dependencies = [
  "log",
  "recursive",
+ "serde",
  "sqlparser_derive",
 ]
 
@@ -719,12 +783,13 @@ dependencies = [
  "windows-link",
 ]
 
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
 [[patch.unused]]
 name = "diesel"
 version = "2.4.0"
 source = "git+https://github.com/diesel-rs/diesel?branch=main#35c7c77307c823c6ffdf704f7346fb1385dd49a0"
-
-[[patch.unused]]
-name = "sql-values"
-version = "0.6.0"
-source = "git+https://github.com/connetto-rs/sql-values?branch=main#7c18726d135c2f8d685d3d89915bf6d228d84351"

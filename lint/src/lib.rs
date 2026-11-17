@@ -1,15 +1,19 @@
-//! The `SQLippy` configuration connetto-schema is written for, shared with
-//! schemas applied on top of it.
+//! The `SQLippy` and `rls2fga` configuration connetto-schema is written for,
+//! shared with schemas applied on top of it.
 //!
 //! A downstream schema extends [`deployment()`] with its own tenant tables,
 //! builds the constrainer with [`constrainer()`], adds its own allowances,
-//! and reads the remaining diagnostics with [`findings()`].
+//! and reads the remaining diagnostics with [`findings()`]. The
+//! [`translation`] module holds the `rls2fga` side.
 
 use std::{fs, io, path::Path};
 
+pub use rls2fga;
 pub use sqlippy;
 use sqlippy::prelude::*;
 pub use sqlparser;
+
+pub mod translation;
 
 /// Tables whose rows belong to the organization named by their
 /// `organization_id`.

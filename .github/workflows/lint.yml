@@ -1,4 +1,4 @@
-name: SQLippy
+name: Schema lint
 
 on:
   push:
@@ -40,5 +40,5 @@ jobs:
         run: cargo doc --locked --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
-      - name: SQLippy reports nothing on the schema
+      - name: SQLippy reports nothing and rls2fga translates every clause at A
         run: cargo run --locked --release

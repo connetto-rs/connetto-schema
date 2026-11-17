@@ -171,6 +171,22 @@ SELECT pg_temp.audit_check('platform audit is hidden from installations acting f
     SELECT set_config('app.installation_id', '90000000-0000-7000-8000-000000000099', true);
     SET LOCAL ROLE app$$,
   'SELECT count(*) = 0 FROM platform_audit_events');
+SELECT pg_temp.audit_check('platform operator reads their own operator row',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SET LOCAL ROLE app$$,
+  $$SELECT array_agg(id) = ARRAY['10000000-0000-7000-8000-000000000002'::uuid] FROM platform_operators$$);
+SELECT pg_temp.audit_check('platform operator rows are hidden from other users',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000001', true);
+    SET LOCAL ROLE app$$,
+  'SELECT count(*) = 0 FROM platform_operators');
+SELECT pg_temp.audit_check('platform operator rows are hidden from installations acting for an operator',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SELECT set_config('app.installation_id', '90000000-0000-7000-8000-000000000099', true);
+    SET LOCAL ROLE app$$,
+  'SELECT count(*) = 0 FROM platform_operators');
 
 SELECT pg_temp.audit_check('support operator cannot receive a permanent grant',
   $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');

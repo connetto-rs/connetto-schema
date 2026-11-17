@@ -176,11 +176,6 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
     constrainer.allow_table("row_level_security_without_policies", table("grantees"));
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
     constrainer.allow_table("unaudited_authority_table", table("grantees"));
-    // The deployment manages platform operators and the application reads them only through authz.is_platform_operator
-    constrainer.allow_table(
-        "row_level_security_without_policies",
-        table("platform_operators"),
-    );
     // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin
     for (policy_table, policy) in [
         ("memberships", "memberships_insert"),

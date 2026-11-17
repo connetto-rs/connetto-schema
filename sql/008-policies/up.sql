@@ -211,6 +211,9 @@ GRANT SELECT ON audit_events TO app;
 CREATE POLICY audit_events_select ON audit_events FOR SELECT TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 
+GRANT SELECT ON platform_operators TO app;
+CREATE POLICY platform_operators_select ON platform_operators FOR SELECT TO app
+  USING (id = (SELECT authz.caller_id()) AND (SELECT authz.acting_installation_id()) IS NULL);
 GRANT SELECT ON platform_audit_events TO app;
 CREATE POLICY platform_audit_events_select ON platform_audit_events FOR SELECT TO app
   USING ((SELECT authz.is_platform_operator()));

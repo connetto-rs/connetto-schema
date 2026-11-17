@@ -102,7 +102,7 @@ CREATE POLICY resources_insert ON resources FOR INSERT TO app
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('writer')))
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('writer'))))
-    OR (kind = 'organization' AND id = ANY (ARRAY(SELECT authz.founded_organizations()))
+    OR (kind = 'organization' AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
       AND (SELECT authz.acting_installation_id()) IS NULL));
 CREATE POLICY resources_update ON resources FOR UPDATE TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))))

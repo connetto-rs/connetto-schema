@@ -135,9 +135,15 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   SELECT team.organization_id FROM public.teams team WHERE team.id IN (SELECT authz.administered_teams())
 $$;
 
-CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS SETOF UUID
+CREATE FUNCTION authz.organizations_reaching(min_role authz.role) RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   SELECT resource.organization_id FROM public.resources resource WHERE resource.id IN (SELECT authz.resources_with(min_role))
+$$;
+
+CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT resource.organization_id FROM public.resources resource
+  WHERE resource.kind = 'organization' AND resource.id IN (SELECT authz.resources_with(min_role))
 $$;
 
 CREATE FUNCTION authz.founded_organizations() RETURNS SETOF UUID
@@ -197,6 +203,7 @@ ALTER FUNCTION authz.member_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.co_member_users() OWNER TO authz_owner;
 ALTER FUNCTION authz.administered_teams() OWNER TO authz_owner;
 ALTER FUNCTION authz.team_admin_organizations() OWNER TO authz_owner;
+ALTER FUNCTION authz.organizations_reaching(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.organizations_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.founded_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.pending_invitations() OWNER TO authz_owner;

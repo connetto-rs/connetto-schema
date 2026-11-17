@@ -154,6 +154,24 @@ SELECT pg_temp.audit_check('audit events', 'SELECT 1',
 
 RESET ROLE;
 
+SELECT pg_temp.audit_check('platform audit records user creation and organization founding', 'SELECT 1',
+  $$SELECT array_agg(table_name || ' ' || operation ORDER BY id) = ARRAY['users INSERT', 'users INSERT', 'organizations INSERT']
+    AND bool_and((table_name = 'users') = (actor_id IS NULL)) FROM platform_audit_events$$);
+SELECT pg_temp.audit_check('platform operator reads platform audit',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SET LOCAL ROLE app$$,
+  $$SELECT array_agg(table_name || ' ' || operation ORDER BY id) = ARRAY[
+    'users INSERT', 'users INSERT', 'organizations INSERT', 'platform_operators INSERT'] FROM platform_audit_events$$);
+SELECT pg_temp.audit_check('platform audit is hidden from organization admins',
+  'SET LOCAL ROLE app', 'SELECT count(*) = 0 FROM platform_audit_events');
+SELECT pg_temp.audit_check('platform audit is hidden from installations acting for an operator',
+  $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
+    SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
+    SELECT set_config('app.installation_id', '90000000-0000-7000-8000-000000000099', true);
+    SET LOCAL ROLE app$$,
+  'SELECT count(*) = 0 FROM platform_audit_events');
+
 SELECT pg_temp.audit_check('support operator cannot receive a permanent grant',
   $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
     SET LOCAL ROLE app;
@@ -389,7 +407,9 @@ SELECT pg_temp.audit_check('9 organization deletion after link and dependent cle
     DELETE FROM organizations WHERE id = '20000000-0000-7000-8000-000000000003'$$,
   $$SELECT NOT EXISTS (SELECT 1 FROM organizations WHERE id = '20000000-0000-7000-8000-000000000003')
     AND NOT EXISTS (SELECT 1 FROM share_links WHERE organization_id = '20000000-0000-7000-8000-000000000003')
-    AND NOT EXISTS (SELECT 1 FROM grantees WHERE id = 'a0000000-0000-7000-8000-000000000003')$$);
+    AND NOT EXISTS (SELECT 1 FROM grantees WHERE id = 'a0000000-0000-7000-8000-000000000003')
+    AND EXISTS (SELECT 1 FROM platform_audit_events WHERE table_name = 'organizations' AND operation = 'DELETE'
+      AND old_row ->> 'id' = '20000000-0000-7000-8000-000000000003')$$);
 
 SET ROLE app;
 SELECT pg_temp.audit_check('organization grant reaches nested ownable',

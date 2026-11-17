@@ -1,4 +1,4 @@
-REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_parents, team_members, resources, resource_parents, ownables, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events FROM PUBLIC, app, identity_writer;
+REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_parents, team_members, resources, resource_parents, ownables, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
 
 GRANT SELECT ON users TO app;
 GRANT SELECT, INSERT ON users TO identity_writer;
@@ -210,6 +210,10 @@ CREATE POLICY installation_permissions_delete ON installation_permissions FOR DE
 GRANT SELECT ON audit_events TO app;
 CREATE POLICY audit_events_select ON audit_events FOR SELECT TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+
+GRANT SELECT ON platform_audit_events TO app;
+CREATE POLICY platform_audit_events_select ON platform_audit_events FOR SELECT TO app
+  USING ((SELECT authz.is_platform_operator()));
 
 CREATE POLICY resources_archived_insert ON resources AS RESTRICTIVE FOR INSERT TO app
   WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(organization_id));

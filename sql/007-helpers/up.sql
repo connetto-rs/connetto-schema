@@ -1,8 +1,8 @@
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE authz_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
-GRANT SELECT ON grantees, organizations, memberships, invitations, teams, team_members, team_parents, share_links,
-  resources, resource_parents, ownables, grants, organization_blocks, installation_permissions TO authz_owner;
+GRANT SELECT ON grantees, platform_operators, organizations, memberships, invitations, teams, team_members, team_parents,
+  share_links, resources, resource_parents, ownables, grants, organization_blocks, installation_permissions TO authz_owner;
 
 CREATE FUNCTION authz.caller_id() RETURNS UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
@@ -189,6 +189,13 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
     AND (block.expires_at IS NULL OR block.expires_at > now())
 $$;
 
+-- An installation never acts with its user's platform authority.
+CREATE FUNCTION authz.is_platform_operator() RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT authz.acting_installation_id() IS NULL
+    AND EXISTS (SELECT 1 FROM public.platform_operators operator WHERE operator.id = authz.caller_id())
+$$;
+
 ALTER FUNCTION authz.caller_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.acting_installation_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.original_actor_id() OWNER TO authz_owner;
@@ -210,5 +217,6 @@ ALTER FUNCTION authz.pending_invitations() OWNER TO authz_owner;
 ALTER FUNCTION authz.is_archived(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.has_archived_ancestor(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.blocking_organizations() OWNER TO authz_owner;
+ALTER FUNCTION authz.is_platform_operator() OWNER TO authz_owner;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz FROM PUBLIC, app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA authz TO app;

@@ -14,7 +14,7 @@ GRANT SELECT ON organizations, teams, team_parents, resources, resource_parents,
 GRANT UPDATE (id) ON organizations TO authz_writer;
 GRANT SELECT ON memberships, invitations TO authz_writer;
 GRANT UPDATE (accepted_by_id) ON invitations TO authz_writer;
-GRANT INSERT ON audit_events TO authz_writer;
+GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
 GRANT UPDATE (archived_at) ON resources TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
@@ -417,6 +417,21 @@ BEGIN
 END
 $$;
 
+CREATE FUNCTION authz_write.record_platform_audit_event() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  INSERT INTO public.platform_audit_events
+    (at, actor_id, original_actor_id, installation_id, table_name, operation, old_row, new_row)
+  VALUES (
+    now(), authz.caller_id(), authz.original_actor_id(),
+    authz.acting_installation_id(), TG_TABLE_NAME, TG_OP::authz.audit_operation,
+    CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE to_jsonb(OLD) END,
+    CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE to_jsonb(NEW) END
+  );
+  RETURN NULL;
+END
+$$;
+
 CREATE TRIGGER memberships_audit AFTER INSERT OR DELETE ON memberships
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER memberships_update_audit AFTER UPDATE ON memberships
@@ -473,6 +488,18 @@ CREATE TRIGGER apps_audit AFTER INSERT OR DELETE ON apps
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER apps_update_audit AFTER UPDATE ON apps
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER users_audit AFTER INSERT OR DELETE ON users
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER users_update_audit AFTER UPDATE ON users
+  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER platform_operators_audit AFTER INSERT OR DELETE ON platform_operators
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER platform_operators_update_audit AFTER UPDATE ON platform_operators
+  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER organizations_audit AFTER INSERT OR DELETE ON organizations
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER organizations_update_audit AFTER UPDATE ON organizations
+  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_platform_audit_event();
 
 ALTER FUNCTION authz_write.require_support_expiry(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_grant_support_expiry() OWNER TO authz_writer;
@@ -499,5 +526,6 @@ ALTER FUNCTION authz_write.require_unfounded(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_founder_membership() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_founder_grant() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.record_audit_event() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.record_platform_audit_event() OWNER TO authz_writer;
 
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz_write FROM PUBLIC, app;

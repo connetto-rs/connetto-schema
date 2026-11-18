@@ -48,7 +48,7 @@ for major in "$@"; do
   psql -d postgres -f /schema/cluster/roles.sql
   psql -d postgres -c 'CREATE DATABASE schema_template'
   psql -d schema_template -c 'CREATE SCHEMA test_tools' -c 'GRANT USAGE ON SCHEMA test_tools TO PUBLIC' \
-    -c 'CREATE EXTENSION pgtap SCHEMA test_tools'
+    -c 'CREATE EXTENSION pgtap SCHEMA test_tools' -c 'CREATE EXTENSION plpgsql_check SCHEMA test_tools'
   slices=("$root"/sql/*/up.sql)
   for slice in "${slices[@]}"; do
     psql -d schema_template -f "/schema/${slice#"$root"/}"

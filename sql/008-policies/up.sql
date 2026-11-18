@@ -99,6 +99,7 @@ CREATE POLICY resources_insert ON resources FOR INSERT TO app
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('admin'))))
     OR (kind = 'ownable'
+      AND archived_at IS NULL
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('writer')))
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('writer'))))

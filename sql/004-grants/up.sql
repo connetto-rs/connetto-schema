@@ -6,7 +6,7 @@ CREATE TABLE grants (
   role authz.role NOT NULL,
   expires_at TIMESTAMPTZ,
   PRIMARY KEY (resource_id, grantee_id),
-  FOREIGN KEY (organization_id, resource_id) REFERENCES resources (organization_id, id),
+  FOREIGN KEY (organization_id, resource_id) REFERENCES resources (organization_id, id) ON DELETE CASCADE,
   FOREIGN KEY (grantee_id, grantee_kind) REFERENCES grantees (id, kind) ON DELETE CASCADE,
   CHECK (grantee_kind NOT IN ('everyone', 'signed_in', 'link') OR role < 'admin')
 );

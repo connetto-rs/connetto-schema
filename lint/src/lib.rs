@@ -172,6 +172,23 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         table("organization_blocks"),
         "organization_blocks_principal_id_principal_kind_fkey",
     );
+    // Whoever deletes a resource administers it, and sharable_grants lets that admin delete every grant on it
+    constrainer.allow_foreign_key(
+        "cascade_into_row_level_security_table",
+        table("grants"),
+        "grants_organization_id_resource_id_fkey",
+    );
+    // Deleting a folder or project needs organization admin, which also administers its parent as the edge policy asks
+    for key in [
+        "resource_parents_organization_id_id_fkey",
+        "resource_parents_id_resource_kind_fkey",
+    ] {
+        constrainer.allow_foreign_key(
+            "cascade_into_row_level_security_table",
+            table("resource_parents"),
+            key,
+        );
+    }
     // The application reaches grantees only through helpers and subtype triggers
     constrainer.allow_table("row_level_security_without_policies", table("grantees"));
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row

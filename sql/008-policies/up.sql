@@ -109,7 +109,9 @@ CREATE POLICY resources_update ON resources FOR UPDATE TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
   WITH CHECK (id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
 CREATE POLICY resources_delete ON resources FOR DELETE TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
+  USING ((kind IN ('organization', 'ownable') AND id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
+    OR (kind IN ('folder', 'project') AND id = ANY (ARRAY(SELECT authz.resources_with('admin')))
+      AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 
 GRANT SELECT, INSERT, UPDATE (parent_id, parent_kind), DELETE ON resource_parents TO app;
 CREATE POLICY resource_parents_select ON resource_parents FOR SELECT TO app

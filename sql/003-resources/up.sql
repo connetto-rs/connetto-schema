@@ -17,9 +17,9 @@ CREATE TABLE resource_parents (
   resource_kind authz.resource_kind NOT NULL CHECK (resource_kind IN ('folder', 'project')),
   parent_id UUID NOT NULL CHECK (parent_id <> id),
   parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
-  FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id),
+  FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id) ON DELETE CASCADE,
   FOREIGN KEY (organization_id, parent_id) REFERENCES resources (organization_id, id),
-  FOREIGN KEY (id, resource_kind) REFERENCES resources (id, kind),
+  FOREIGN KEY (id, resource_kind) REFERENCES resources (id, kind) ON DELETE CASCADE,
   FOREIGN KEY (parent_id, parent_kind) REFERENCES resources (id, kind)
 );
 CREATE INDEX ON resource_parents (parent_id);

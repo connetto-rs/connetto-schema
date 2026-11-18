@@ -2,6 +2,8 @@ CREATE TABLE organizations (
   id UUID PRIMARY KEY,
   kind authz.grantee_kind GENERATED ALWAYS AS ('organization'::authz.grantee_kind) STORED NOT NULL,
   created_by_id UUID NOT NULL REFERENCES users (id),
+  -- Set by the first admin grant on the organization. Its creator takes the founding membership and grant only while it is NULL.
+  founded_at TIMESTAMPTZ,
   FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX ON organizations (created_by_id);

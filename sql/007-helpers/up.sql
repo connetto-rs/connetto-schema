@@ -148,7 +148,8 @@ $$;
 
 CREATE FUNCTION authz.founded_organizations() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
-  SELECT organization.id FROM public.organizations organization WHERE organization.created_by_id = authz.caller_id()
+  SELECT organization.id FROM public.organizations organization
+  WHERE organization.created_by_id = authz.caller_id() AND organization.founded_at IS NULL
 $$;
 
 CREATE FUNCTION authz.pending_invitations() RETURNS SETOF UUID

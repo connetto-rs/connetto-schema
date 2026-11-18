@@ -155,14 +155,14 @@ SELECT pg_temp.audit_check('audit events', 'SELECT 1',
 RESET ROLE;
 
 SELECT pg_temp.audit_check('platform audit records user creation and organization founding', 'SELECT 1',
-  $$SELECT array_agg(table_name || ' ' || operation ORDER BY id) = ARRAY['users INSERT', 'users INSERT', 'organizations INSERT']
+  $$SELECT array_agg(table_name || ' ' || operation ORDER BY id) = ARRAY['users INSERT', 'users INSERT', 'organizations INSERT', 'organizations UPDATE']
     AND bool_and((table_name = 'users') = (actor_id IS NULL)) FROM platform_audit_events$$);
 SELECT pg_temp.audit_check('platform operator reads platform audit',
   $$INSERT INTO platform_operators (id) VALUES ('10000000-0000-7000-8000-000000000002');
     SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
     SET LOCAL ROLE app$$,
   $$SELECT array_agg(table_name || ' ' || operation ORDER BY id) = ARRAY[
-    'users INSERT', 'users INSERT', 'organizations INSERT', 'platform_operators INSERT'] FROM platform_audit_events$$);
+    'users INSERT', 'users INSERT', 'organizations INSERT', 'organizations UPDATE', 'platform_operators INSERT'] FROM platform_audit_events$$);
 SELECT pg_temp.audit_check('platform audit is hidden from organization admins',
   'SET LOCAL ROLE app', 'SELECT count(*) = 0 FROM platform_audit_events');
 SELECT pg_temp.audit_check('platform audit is hidden from installations acting for an operator',
@@ -478,6 +478,12 @@ SELECT pg_temp.audit_check('organization without an admin is refused',
   'SELECT FALSE', ARRAY['23514']);
 SELECT pg_temp.audit_check('organization creator is the caller',
   $$INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000005', '10000000-0000-7000-8000-000000000002')$$,
+  'SELECT FALSE', ARRAY['42501']);
+SELECT pg_temp.audit_check('the founding grant marks the organization founded',
+  $$SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000006')$$,
+  $$SELECT founded_at IS NOT NULL FROM organizations WHERE id = '20000000-0000-7000-8000-000000000006'$$);
+SELECT pg_temp.audit_check('organization creator cannot mark it founded',
+  $$INSERT INTO organizations (id, created_by_id, founded_at) VALUES ('20000000-0000-7000-8000-000000000005', '10000000-0000-7000-8000-000000000001', now())$$,
   'SELECT FALSE', ARRAY['42501']);
 SELECT pg_temp.audit_check('only the founder takes the founding grant',
   $$SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000006');

@@ -54,8 +54,10 @@ $$;
 CREATE TRIGGER grants_support_expiry AFTER INSERT OR UPDATE ON grants
   FOR EACH ROW WHEN (NEW.grantee_kind = 'user' AND (NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at)))
   EXECUTE FUNCTION authz_write.check_grant_support_expiry();
-CREATE TRIGGER platform_operators_support_expiry AFTER INSERT OR UPDATE ON platform_operators
+CREATE TRIGGER platform_operators_support_expiry AFTER INSERT ON platform_operators
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_operator_support_expiry();
+CREATE TRIGGER platform_operators_update_support_expiry AFTER UPDATE ON platform_operators
+  FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.check_operator_support_expiry();
 
 CREATE FUNCTION authz_write.insert_grantee() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -293,9 +295,6 @@ $$;
 CREATE FUNCTION authz_write.check_last_admin() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
-  IF OLD.resource_id <> OLD.organization_id THEN
-    RETURN NULL;
-  END IF;
   PERFORM authz_write.require_organization_admin(OLD.organization_id);
   RETURN NULL;
 END
@@ -303,7 +302,7 @@ $$;
 
 CREATE CONSTRAINT TRIGGER grants_last_admin AFTER UPDATE OR DELETE ON grants
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-  WHEN (OLD.role = 'admin' AND OLD.expires_at IS NULL AND OLD.grantee_kind = 'user')
+  WHEN (OLD.role = 'admin' AND OLD.expires_at IS NULL AND OLD.grantee_kind = 'user' AND OLD.resource_id = OLD.organization_id)
   EXECUTE FUNCTION authz_write.check_last_admin();
 
 CREATE FUNCTION authz_write.check_membership_admin() RETURNS TRIGGER

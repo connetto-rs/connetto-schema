@@ -20,7 +20,7 @@ GRANT UPDATE (archived_at) ON resources TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
 
 CREATE FUNCTION authz_write.require_support_expiry(target_user UUID) RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   -- A row version change makes stale snapshots fail serialization.
   UPDATE public.users SET id = id WHERE id = target_user;
@@ -36,7 +36,7 @@ END
 $$;
 
 CREATE FUNCTION authz_write.check_grant_support_expiry() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   PERFORM authz_write.require_support_expiry(NEW.grantee_id);
   RETURN NEW;
@@ -44,7 +44,7 @@ END
 $$;
 
 CREATE FUNCTION authz_write.check_operator_support_expiry() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   PERFORM authz_write.require_support_expiry(NEW.id);
   RETURN NEW;
@@ -60,7 +60,7 @@ CREATE TRIGGER platform_operators_update_support_expiry AFTER UPDATE ON platform
   FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.check_operator_support_expiry();
 
 CREATE FUNCTION authz_write.insert_grantee() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   INSERT INTO public.grantees (id, kind) VALUES (NEW.id, NEW.kind);
   RETURN NULL;
@@ -68,7 +68,7 @@ END
 $$;
 
 CREATE FUNCTION authz_write.delete_grantee() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   DELETE FROM public.grantees WHERE id = OLD.id;
   RETURN NULL;
@@ -87,7 +87,7 @@ CREATE TRIGGER app_installations_grantee AFTER INSERT ON app_installations FOR E
 CREATE TRIGGER app_installations_grantee_removed AFTER DELETE ON app_installations FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
 
 CREATE FUNCTION authz.stamp_archived_at() RETURNS TRIGGER
-LANGUAGE plpgsql SET search_path = '' AS $$
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF NEW.archived_at IS NOT NULL THEN
     IF TG_OP = 'UPDATE' AND OLD.archived_at IS NOT NULL THEN
@@ -101,7 +101,7 @@ END
 $$;
 
 CREATE FUNCTION authz.stamp_revoked_at() RETURNS TRIGGER
-LANGUAGE plpgsql SET search_path = '' AS $$
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF NEW.revoked_at IS NOT NULL THEN
     IF TG_OP = 'UPDATE' AND OLD.revoked_at IS NOT NULL THEN
@@ -121,7 +121,7 @@ CREATE TRIGGER share_links_stamp_revoked_at BEFORE INSERT OR UPDATE OF revoked_a
 REVOKE EXECUTE ON FUNCTION authz.stamp_archived_at(), authz.stamp_revoked_at() FROM PUBLIC, app;
 
 CREATE FUNCTION authz_write.delete_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   DELETE FROM public.resources WHERE id = OLD.id AND kind = 'ownable';
   RETURN NULL;
@@ -132,7 +132,7 @@ CREATE TRIGGER ownables_resource_removed AFTER DELETE ON ownables
   FOR EACH ROW EXECUTE FUNCTION authz_write.delete_ownable_resource();
 
 CREATE FUNCTION authz_write.check_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.ownables ownable WHERE ownable.id = NEW.id) THEN
     RAISE EXCEPTION 'resource % requires its ownable', NEW.id USING ERRCODE = 'check_violation';
@@ -146,7 +146,7 @@ CREATE CONSTRAINT TRIGGER resources_ownable_required AFTER INSERT ON resources
   EXECUTE FUNCTION authz_write.check_ownable_resource();
 
 CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
     RAISE EXCEPTION 'organization checks require read committed or serializable' USING ERRCODE = 'invalid_transaction_state';
@@ -158,7 +158,7 @@ END
 $$;
 
 CREATE FUNCTION authz_write.check_team_parent() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   ancestor_depth INTEGER;
   descendant_depth INTEGER;
@@ -193,7 +193,7 @@ END
 $$;
 
 CREATE FUNCTION authz_write.check_resource_parent() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   ancestor_depth INTEGER;
   descendant_depth INTEGER;
@@ -233,7 +233,7 @@ CREATE TRIGGER resource_parents_shape BEFORE INSERT OR UPDATE ON resource_parent
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_parent();
 
 CREATE FUNCTION authz_write.check_resource_edge() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   orphan UUID;
 BEGIN
@@ -253,7 +253,7 @@ CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE OR UPDATE ON re
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
 
 CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF NOT NEW.organization_id IN (SELECT authz.resources_with('admin')) AND NOT EXISTS (
     SELECT 1 FROM public.team_parents edge
@@ -269,7 +269,7 @@ CREATE CONSTRAINT TRIGGER teams_parent_required AFTER INSERT ON teams
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_edge();
 
 CREATE FUNCTION authz_write.has_active_admin(target_organization UUID) RETURNS BOOLEAN
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.grants permission
     JOIN public.memberships membership
@@ -281,7 +281,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
 $$;
 
 CREATE FUNCTION authz_write.require_organization_admin(target_organization UUID) RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF NOT authz_write.lock_organization(target_organization) THEN
     RETURN;
@@ -293,7 +293,7 @@ END
 $$;
 
 CREATE FUNCTION authz_write.check_last_admin() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   PERFORM authz_write.require_organization_admin(OLD.organization_id);
   RETURN NULL;
@@ -306,7 +306,7 @@ CREATE CONSTRAINT TRIGGER grants_last_admin AFTER UPDATE OR DELETE ON grants
   EXECUTE FUNCTION authz_write.check_last_admin();
 
 CREATE FUNCTION authz_write.check_membership_admin() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   PERFORM authz_write.require_organization_admin(OLD.organization_id);
   RETURN NULL;
@@ -318,7 +318,7 @@ CREATE CONSTRAINT TRIGGER memberships_last_admin AFTER UPDATE OR DELETE ON membe
   EXECUTE FUNCTION authz_write.check_membership_admin();
 
 CREATE FUNCTION authz_write.check_founded() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF NOT authz_write.has_active_admin(NEW.id) THEN
     RAISE EXCEPTION 'organization % requires an active admin', NEW.id USING ERRCODE = 'check_violation';
@@ -331,7 +331,7 @@ CREATE CONSTRAINT TRIGGER organizations_admin_required AFTER INSERT ON organizat
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_founded();
 
 CREATE FUNCTION authz_write.stamp_founded_at() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   UPDATE public.organizations SET founded_at = now() WHERE id = NEW.organization_id AND founded_at IS NULL;
   RETURN NULL;
@@ -343,7 +343,7 @@ CREATE TRIGGER grants_founded AFTER INSERT ON grants
   EXECUTE FUNCTION authz_write.stamp_founded_at();
 
 CREATE FUNCTION authz_write.delete_membership_grants() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   DELETE FROM public.grants
     WHERE organization_id = OLD.organization_id AND grantee_id = OLD.user_id AND grantee_kind = 'user';
@@ -355,7 +355,7 @@ CREATE TRIGGER memberships_grants_removed AFTER DELETE ON memberships
   FOR EACH ROW EXECUTE FUNCTION authz_write.delete_membership_grants();
 
 CREATE FUNCTION authz_write.accept_invitation() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   UPDATE public.invitations SET accepted_by_id = NEW.user_id WHERE id = NEW.invitation_id;
   RETURN NULL;
@@ -366,7 +366,7 @@ CREATE TRIGGER memberships_invitation_accepted AFTER INSERT ON memberships
   FOR EACH ROW WHEN (NEW.invitation_id IS NOT NULL) EXECUTE FUNCTION authz_write.accept_invitation();
 
 CREATE FUNCTION authz_write.record_audit_event() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   changed RECORD;
 BEGIN
@@ -388,7 +388,7 @@ END
 $$;
 
 CREATE FUNCTION authz_write.record_platform_audit_event() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   INSERT INTO public.platform_audit_events
     (at, actor_id, original_actor_id, installation_id, table_name, operation, old_row, new_row)

@@ -5,37 +5,37 @@ GRANT SELECT ON grantees, platform_operators, organizations, memberships, invita
   share_links, resources, resource_parents, ownables, grants, organization_blocks, installation_permissions TO authz_owner;
 
 CREATE FUNCTION authz.caller_id() RETURNS UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('app.user_id', true), '')::uuid
 $$;
 
 CREATE FUNCTION authz.acting_installation_id() RETURNS UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('app.installation_id', true), '')::uuid
 $$;
 
 CREATE FUNCTION authz.original_actor_id() RETURNS UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('app.original_actor_id', true), '')::uuid
 $$;
 
 CREATE FUNCTION authz.link_ids() RETURNS UUID[]
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT string_to_array(NULLIF(current_setting('app.link_ids', true), ''), ',')::uuid[]
 $$;
 
 CREATE FUNCTION authz.verified_email() RETURNS TEXT
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT lower(NULLIF(current_setting('app.verified_email', true), ''))
 $$;
 
 CREATE FUNCTION authz.max_tree_depth() RETURNS INTEGER
-LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT 20
 $$;
 
 CREATE FUNCTION authz.caller_grantees() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE reached (id) AS (
     SELECT grantee.id FROM public.grantees grantee
     WHERE grantee.id = authz.caller_id() AND grantee.kind IN ('user', 'installation')
@@ -63,14 +63,14 @@ $$;
 
 CREATE FUNCTION authz.capped_kinds(min_role authz.role)
 RETURNS TABLE (organization_id UUID, kind authz.resource_kind)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT permission.organization_id, permission.kind FROM public.installation_permissions permission
   WHERE permission.installation_id = authz.acting_installation_id()
     AND permission.max_role >= min_role
 $$;
 
 CREATE FUNCTION authz.resources_with(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE reached (id) AS (
     SELECT permission.resource_id FROM public.grants permission
     WHERE permission.grantee_id IN (SELECT authz.caller_grantees())
@@ -94,7 +94,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
 $$;
 
 CREATE FUNCTION authz.sharable_grants() RETURNS TABLE (resource_id UUID, role authz.role)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id, allowed.role
   FROM authz.resources_with('admin') resource(id)
   CROSS JOIN unnest(enum_range(NULL::authz.role)) allowed(role)
@@ -105,7 +105,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
 $$;
 
 CREATE FUNCTION authz.member_organizations() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT membership.organization_id FROM public.memberships membership
   WHERE membership.user_id = authz.caller_id() AND membership.state = 'active'
     AND (authz.acting_installation_id() IS NULL
@@ -114,13 +114,13 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
 $$;
 
 CREATE FUNCTION authz.co_member_users() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT membership.user_id FROM public.memberships membership
   WHERE membership.organization_id IN (SELECT authz.member_organizations()) AND membership.state = 'active'
 $$;
 
 CREATE FUNCTION authz.administered_teams() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT member.team_id FROM public.team_members member
   JOIN public.memberships membership ON membership.organization_id = member.organization_id AND membership.user_id = member.user_id
   WHERE member.user_id = authz.caller_id()
@@ -131,35 +131,35 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
 $$;
 
 CREATE FUNCTION authz.team_admin_organizations() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT team.organization_id FROM public.teams team WHERE team.id IN (SELECT authz.administered_teams())
 $$;
 
 CREATE FUNCTION authz.organizations_reaching(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.organization_id FROM public.resources resource WHERE resource.id IN (SELECT authz.resources_with(min_role))
 $$;
 
 CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.organization_id FROM public.resources resource
   WHERE resource.kind = 'organization' AND resource.id IN (SELECT authz.resources_with(min_role))
 $$;
 
 CREATE FUNCTION authz.founded_organizations() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT organization.id FROM public.organizations organization
   WHERE organization.created_by_id = authz.caller_id() AND organization.founded_at IS NULL
 $$;
 
 CREATE FUNCTION authz.pending_invitations() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT invitation.id FROM public.invitations invitation
   WHERE invitation.email = authz.verified_email() AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
 $$;
 
 CREATE FUNCTION authz.is_archived(resource UUID) RETURNS BOOLEAN
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE ancestors (id) AS (
     SELECT resource
     UNION
@@ -178,13 +178,13 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
 $$;
 
 CREATE FUNCTION authz.has_archived_ancestor(resource UUID) RETURNS BOOLEAN
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT EXISTS (SELECT 1 FROM public.resource_parents edge WHERE edge.id = resource AND authz.is_archived(edge.parent_id))
     OR EXISTS (SELECT 1 FROM public.ownables ownable WHERE ownable.id = resource AND authz.is_archived(ownable.project_id))
 $$;
 
 CREATE FUNCTION authz.blocking_organizations() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT block.organization_id FROM public.organization_blocks block
   WHERE block.principal_id IN (authz.caller_id(), authz.acting_installation_id())
     AND (block.expires_at IS NULL OR block.expires_at > now())
@@ -192,7 +192,7 @@ $$;
 
 -- An installation never acts with its user's platform authority.
 CREATE FUNCTION authz.is_platform_operator() RETURNS BOOLEAN
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT authz.acting_installation_id() IS NULL
     AND EXISTS (SELECT 1 FROM public.platform_operators operator WHERE operator.id = authz.caller_id())
 $$;

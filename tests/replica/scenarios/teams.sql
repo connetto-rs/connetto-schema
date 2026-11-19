@@ -1,0 +1,44 @@
+-- tests/behaviour/teams.sql on both engines.
+
+--! server
+SET ROLE identity_writer;
+INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
+
+-- The founding grant stamps the organization on the server.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=organizations
+INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
+INSERT INTO resources (id, kind, organization_id) VALUES ('20000000-0000-7000-8000-000000000001', 'organization', '20000000-0000-7000-8000-000000000001');
+INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001', 'active');
+INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001', 'user', 'admin');
+
+-- Membership reveals the new co-member user after server delivery.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=users
+INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001');
+INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001');
+INSERT INTO team_parents (organization_id, id, parent_id) VALUES ('20000000-0000-7000-8000-000000000001', '30000000-0000-7000-8000-000000000002', '30000000-0000-7000-8000-000000000001');
+INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'active');
+
+-- A team cannot parent itself.
+--! client user=10000000-0000-7000-8000-000000000001 expect=23514
+UPDATE team_parents SET parent_id = '30000000-0000-7000-8000-000000000002' WHERE id = '30000000-0000-7000-8000-000000000002';
+
+-- A team cycle is rejected.
+--! client user=10000000-0000-7000-8000-000000000001 expect=23514
+INSERT INTO team_parents (organization_id, id, parent_id) VALUES ('20000000-0000-7000-8000-000000000001', '30000000-0000-7000-8000-000000000001', '30000000-0000-7000-8000-000000000002');
+
+-- A member cannot create a child team.
+--! client user=10000000-0000-7000-8000-000000000002 expect=42501
+INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001');
+
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok
+INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-000000000009', '20000000-0000-7000-8000-000000000001');
+INSERT INTO team_members (team_id, organization_id, user_id, team_role) VALUES ('30000000-0000-7000-8000-000000000009', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'admin');
+
+-- A team admin creates a child team.
+--! client user=10000000-0000-7000-8000-000000000002 expect=ok
+INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-00000000000a', '20000000-0000-7000-8000-000000000001');
+INSERT INTO team_parents (organization_id, id, parent_id) VALUES ('20000000-0000-7000-8000-000000000001', '30000000-0000-7000-8000-00000000000a', '30000000-0000-7000-8000-000000000009');
+
+-- A team admin cannot create a root team.
+--! client user=10000000-0000-7000-8000-000000000002 expect=23514
+INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-00000000000b', '20000000-0000-7000-8000-000000000001');

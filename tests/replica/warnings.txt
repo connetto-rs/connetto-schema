@@ -1,0 +1,205 @@
+dropped CREATE ROLE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped CREATE ROLE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped CREATE ROLE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped CREATE ROLE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+left FOREIGN KEY (id) REFERENCES users on platform_operators to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
+downgraded WITH TIME ZONE at organizations.founded_at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+downgraded WITH TIME ZONE at invitations.expires_at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+left FOREIGN KEY (organization_id, user_id) REFERENCES memberships on team_members to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
+downgraded WITH TIME ZONE at resources.archived_at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+left FOREIGN KEY (organization_id, id) REFERENCES resources on resource_parents to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
+left FOREIGN KEY (id, resource_kind) REFERENCES resources on resource_parents to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
+downgraded WITH TIME ZONE at grants.expires_at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+left FOREIGN KEY (organization_id, resource_id) REFERENCES resources on grants to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
+downgraded WITH TIME ZONE at share_links.expires_at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+downgraded WITH TIME ZONE at share_links.revoked_at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+downgraded WITH TIME ZONE at organization_blocks.expires_at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+downgraded GENERATED AS IDENTITY at audit_events.id from GENERATED AS IDENTITY to INTEGER PRIMARY KEY AUTOINCREMENT: SQLite counts from the table's high-water mark rather than from a sequence, so a deleted key is not reissued but two differences remain: a value supplied by an insert moves the counter, where a sequence ignores one, and a rolled back insert consumes no key, where a sequence has already advanced.
+downgraded WITH TIME ZONE at audit_events.at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+downgraded JSONB at audit_events.old_row from JSONB to TEXT: The replica orders strings inside a jsonb value bytewise, as the C collation does, where a server whose default collation is another locale orders them by that locale. And ->> answers a number as SQLite's double, so 1.50 reads back as 1.5 and a 30-digit integer loses its last digits, where the server answers the number's text.
+downgraded JSONB at audit_events.new_row from JSONB to TEXT: The replica orders strings inside a jsonb value bytewise, as the C collation does, where a server whose default collation is another locale orders them by that locale. And ->> answers a number as SQLite's double, so 1.50 reads back as 1.5 and a 30-digit integer loses its last digits, where the server answers the number's text.
+downgraded GENERATED AS IDENTITY at platform_audit_events.id from GENERATED AS IDENTITY to INTEGER PRIMARY KEY AUTOINCREMENT: SQLite counts from the table's high-water mark rather than from a sequence, so a deleted key is not reissued but two differences remain: a value supplied by an insert moves the counter, where a sequence ignores one, and a rolled back insert consumes no key, where a sequence has already advanced.
+downgraded WITH TIME ZONE at platform_audit_events.at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
+downgraded JSONB at platform_audit_events.old_row from JSONB to TEXT: The replica orders strings inside a jsonb value bytewise, as the C collation does, where a server whose default collation is another locale orders them by that locale. And ->> answers a number as SQLite's double, so 1.50 reads back as 1.5 and a 30-digit integer loses its last digits, where the server answers the number's text.
+downgraded JSONB at platform_audit_events.new_row from JSONB to TEXT: The replica orders strings inside a jsonb value bytewise, as the C collation does, where a server whose default collation is another locale orders them by that locale. And ->> answers a number as SQLite's double, so 1.50 reads back as 1.5 and a 30-digit integer loses its last digits, where the server answers the number's text.
+dropped ALTER DEFAULT PRIVILEGES: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER DEFAULT PRIVILEGES: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER DEFAULT PRIVILEGES: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER DEFAULT PRIVILEGES: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+left TRIGGER grants_support_expiry on grants to the server, since check_grant_support_expiry() calls require_support_expiry(), which runs UPDATE on users, which the server runs again when it applies the upload
+left TRIGGER platform_operators_support_expiry on platform_operators to the server, since check_operator_support_expiry() calls require_support_expiry(), which runs UPDATE on users, which the server runs again when it applies the upload
+left TRIGGER platform_operators_update_support_expiry on platform_operators to the server, since check_operator_support_expiry() calls require_support_expiry(), which runs UPDATE on users, which the server runs again when it applies the upload
+left TRIGGER users_grantee on users to the server, since insert_grantee() runs INSERT on grantees, which the server runs again when it applies the upload
+left TRIGGER users_grantee_removed on users to the server, since delete_grantee() runs DELETE on grantees, which the server runs again when it applies the upload
+left TRIGGER organizations_grantee on organizations to the server, since insert_grantee() runs INSERT on grantees, which the server runs again when it applies the upload
+left TRIGGER organizations_grantee_removed on organizations to the server, since delete_grantee() runs DELETE on grantees, which the server runs again when it applies the upload
+left TRIGGER teams_grantee on teams to the server, since insert_grantee() runs INSERT on grantees, which the server runs again when it applies the upload
+left TRIGGER teams_grantee_removed on teams to the server, since delete_grantee() runs DELETE on grantees, which the server runs again when it applies the upload
+left TRIGGER share_links_grantee on share_links to the server, since insert_grantee() runs INSERT on grantees, which the server runs again when it applies the upload
+left TRIGGER share_links_grantee_removed on share_links to the server, since delete_grantee() runs DELETE on grantees, which the server runs again when it applies the upload
+left TRIGGER app_installations_grantee on app_installations to the server, since insert_grantee() runs INSERT on grantees, which the server runs again when it applies the upload
+left TRIGGER app_installations_grantee_removed on app_installations to the server, since delete_grantee() runs DELETE on grantees, which the server runs again when it applies the upload
+dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+left TRIGGER ownables_resource_removed on ownables to the server, since delete_ownable_resource() runs DELETE on resources, which the server runs again when it applies the upload
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
+dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
+dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
+dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
+dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
+dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
+dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
+left TRIGGER grants_founded on grants to the server, since stamp_founded_at() runs UPDATE on organizations, which the server runs again when it applies the upload
+left TRIGGER memberships_grants_removed on memberships to the server, since delete_membership_grants() runs DELETE on grants, which the server runs again when it applies the upload
+left TRIGGER memberships_invitation_accepted on memberships to the server, since accept_invitation() runs UPDATE on invitations, which the server runs again when it applies the upload
+left TRIGGER memberships_audit on memberships to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER memberships_update_audit on memberships to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER invitations_audit on invitations to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER invitations_update_audit on invitations to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER team_members_audit on team_members to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER team_members_update_audit on team_members to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER grants_audit on grants to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER grants_update_audit on grants to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER share_links_audit on share_links to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER share_links_update_audit on share_links to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER organization_blocks_audit on organization_blocks to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER organization_blocks_update_audit on organization_blocks to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER app_installations_audit on app_installations to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER app_installations_update_audit on app_installations to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER installation_permissions_audit on installation_permissions to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER installation_permissions_update_audit on installation_permissions to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER teams_audit on teams to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER teams_update_audit on teams to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER team_parents_audit on team_parents to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER team_parents_update_audit on team_parents to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER resource_parents_audit on resource_parents to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER resource_parents_update_audit on resource_parents to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER ownables_audit on ownables to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER ownables_update_audit on ownables to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER resources_audit on resources to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER resources_update_audit on resources to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER apps_audit on apps to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER apps_update_audit on apps to the server, since record_audit_event() runs INSERT on audit_events, which the server runs again when it applies the upload
+left TRIGGER users_audit on users to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
+left TRIGGER users_update_audit on users to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
+left TRIGGER platform_operators_audit on platform_operators to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
+left TRIGGER platform_operators_update_audit on platform_operators to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
+left TRIGGER organizations_audit on organizations to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
+left TRIGGER organizations_update_audit on organizations to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+downgraded FOREIGN KEY at every connection that writes from always enforced to enforced under PRAGMA foreign_keys: SQLite enforces a foreign key only while the connection carries PRAGMA foreign_keys = ON, which is off by default and is connection state rather than database state. The script's setup part sets it, and every connection that writes to the replica has to run that part, or the delete PostgreSQL refuses will leave an orphan row with no error.

@@ -1,0 +1,40 @@
+-- tests/behaviour/database_stamped_timestamps.sql on both engines.
+
+--! server
+SET ROLE identity_writer;
+INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
+
+-- The server stamps the founding grant in `organizations`.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=organizations
+INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000002', '10000000-0000-7000-8000-000000000001');
+INSERT INTO resources (id, kind, organization_id) VALUES ('20000000-0000-7000-8000-000000000002', 'organization', '20000000-0000-7000-8000-000000000002');
+INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000002', '10000000-0000-7000-8000-000000000001', 'active');
+INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role) VALUES ('20000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000002', '10000000-0000-7000-8000-000000000001', 'user', 'admin');
+INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000003', '10000000-0000-7000-8000-000000000001');
+INSERT INTO resources (id, kind, organization_id) VALUES ('20000000-0000-7000-8000-000000000003', 'organization', '20000000-0000-7000-8000-000000000003');
+INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000003', '10000000-0000-7000-8000-000000000001', 'active');
+INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role) VALUES ('20000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000003', '10000000-0000-7000-8000-000000000001', 'user', 'admin');
+
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok
+INSERT INTO resources (id, kind, organization_id) VALUES ('40000000-0000-7000-8000-000000000003', 'folder', '20000000-0000-7000-8000-000000000002');
+INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) VALUES ('20000000-0000-7000-8000-000000000002', '40000000-0000-7000-8000-000000000003', 'folder', '20000000-0000-7000-8000-000000000002', 'organization');
+INSERT INTO share_links (id, organization_id, token_hash, created_by_id) VALUES ('a0000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000003', X'0303030303030303030303030303030303030303030303030303030303030303', '10000000-0000-7000-8000-000000000001');
+
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok
+UPDATE resources SET archived_at = '2000-01-01 00:00:00.000000+00:00' WHERE id = '40000000-0000-7000-8000-000000000003';
+
+-- The application preserves the stored archive timestamp.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok
+UPDATE resources SET archived_at = '2000-01-01 00:00:00.000000+00:00' WHERE id = '40000000-0000-7000-8000-000000000003';
+
+-- Archive restoration keeps `NULL`.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok
+UPDATE resources SET archived_at = NULL WHERE id = '40000000-0000-7000-8000-000000000003';
+
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok
+UPDATE share_links SET revoked_at = '2000-01-01 00:00:00.000000+00:00' WHERE id = 'a0000000-0000-7000-8000-000000000003';
+
+-- The application preserves the stored revocation timestamp.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok
+UPDATE share_links SET revoked_at = '2000-01-01 00:00:00.000000+00:00' WHERE id = 'a0000000-0000-7000-8000-000000000003';
+

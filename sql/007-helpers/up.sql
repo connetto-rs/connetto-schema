@@ -81,26 +81,39 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
     AND permission.max_role >= min_role
 $$;
 
-CREATE FUNCTION authz.resources_with(min_role authz.role) RETURNS SETOF UUID
+CREATE FUNCTION authz.granted_resources(min_role authz.role) RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT permission.resource_id FROM public.grants permission
+  WHERE permission.grantee_id IN (SELECT authz.caller_grantees())
+    AND permission.role >= min_role AND (permission.expires_at IS NULL OR permission.expires_at > now())
+    AND NOT EXISTS (
+      SELECT 1 FROM public.memberships membership
+      WHERE membership.organization_id = permission.organization_id
+        AND membership.user_id = permission.grantee_id AND membership.state = 'deactivated'
+    )
+$$;
+
+CREATE FUNCTION authz.containers_with(min_role authz.role) RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE reached (id) AS (
-    SELECT permission.resource_id FROM public.grants permission
-    WHERE permission.grantee_id IN (SELECT authz.caller_grantees())
-      AND permission.role >= min_role AND (permission.expires_at IS NULL OR permission.expires_at > now())
-      AND NOT EXISTS (
-        SELECT 1 FROM public.memberships membership
-        WHERE membership.organization_id = permission.organization_id
-          AND membership.user_id = permission.grantee_id AND membership.state = 'deactivated'
-      )
+    SELECT granted.id FROM authz.granted_resources(min_role) granted (id)
     UNION
-    SELECT child.id FROM reached CROSS JOIN LATERAL (
-      SELECT parent.id FROM public.resource_parents parent WHERE parent.parent_id = reached.id
-      UNION ALL
-      SELECT ownable.id FROM public.ownables ownable WHERE ownable.project_id = reached.id
-    ) child
+    SELECT parent.id FROM reached JOIN public.resource_parents parent ON parent.parent_id = reached.id
   )
+  SELECT id FROM reached
+$$;
+
+CREATE FUNCTION authz.reached_with(min_role authz.role) RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT reached.id FROM authz.containers_with(min_role) reached (id)
+  UNION
+  SELECT ownable.id FROM public.ownables ownable WHERE ownable.project_id IN (SELECT authz.containers_with(min_role))
+$$;
+
+CREATE FUNCTION authz.resources_with(min_role authz.role) RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id FROM public.resources resource
-  WHERE resource.id IN (SELECT id FROM reached)
+  WHERE resource.id IN (SELECT authz.reached_with(min_role))
     AND (authz.acting_installation_id() IS NULL
       OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds(min_role)))
 $$;
@@ -155,7 +168,9 @@ $$;
 CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.organization_id FROM public.resources resource
-  WHERE resource.kind = 'organization' AND resource.id IN (SELECT authz.resources_with(min_role))
+  WHERE resource.kind = 'organization' AND resource.id IN (SELECT authz.granted_resources(min_role))
+    AND (authz.acting_installation_id() IS NULL
+      OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds(min_role)))
 $$;
 
 CREATE FUNCTION authz.founded_organizations() RETURNS SETOF UUID
@@ -229,6 +244,9 @@ ALTER FUNCTION authz.max_tree_depth() OWNER TO authz_owner;
 ALTER FUNCTION authz.caller_grantees() OWNER TO authz_owner;
 ALTER FUNCTION authz.installation_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.capped_kinds(authz.role) OWNER TO authz_owner;
+ALTER FUNCTION authz.granted_resources(authz.role) OWNER TO authz_owner;
+ALTER FUNCTION authz.containers_with(authz.role) OWNER TO authz_owner;
+ALTER FUNCTION authz.reached_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.resources_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.sharable_grants() OWNER TO authz_owner;
 ALTER FUNCTION authz.member_organizations() OWNER TO authz_owner;

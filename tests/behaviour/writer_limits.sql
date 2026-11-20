@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(4);
+SELECT plan(5);
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
@@ -33,6 +33,11 @@ SELECT is_empty($query$UPDATE resources SET writers_can_share = TRUE WHERE id = 
 SELECT is_empty($query$UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000000000001' RETURNING *$query$, 'writer cannot archive');
 
 SELECT is_empty($query$UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000001' WHERE id = '60000000-0000-7000-8000-000000000001' RETURNING *$query$, 'writer cannot move ownable');
+
+SELECT throws_ok($statement$DO $body$ BEGIN
+  INSERT INTO ownables (id, organization_id, project_id, created_by_id) VALUES ('60000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000002', '10000000-0000-7000-8000-000000000002');
+  INSERT INTO resources (id, kind, organization_id, writers_can_share) VALUES ('60000000-0000-7000-8000-000000000002', 'ownable', '20000000-0000-7000-8000-000000000001', TRUE);
+END $body$$statement$, '42501', NULL, 'writer cannot enable sharing when creating an ownable');
 
 RESET ROLE;
 UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000000000001';

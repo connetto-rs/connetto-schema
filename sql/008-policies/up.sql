@@ -44,7 +44,7 @@ CREATE POLICY memberships_update ON memberships FOR UPDATE TO app
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 CREATE POLICY memberships_delete ON memberships FOR DELETE TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (user_id = (SELECT authz.caller_id())
+    OR (user_id = (SELECT authz.caller_id()) AND state = 'active'
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer')))));
 
@@ -104,7 +104,7 @@ CREATE POLICY resources_insert ON resources FOR INSERT TO app
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('admin'))))
     OR (kind = 'ownable'
-      AND archived_at IS NULL
+      AND archived_at IS NULL AND writers_can_share = FALSE
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('writer')))
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('writer'))))
@@ -166,15 +166,21 @@ CREATE POLICY share_links_select ON share_links FOR SELECT TO app
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY share_links_insert ON share_links FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.member_organizations())) AND created_by_id = (SELECT authz.caller_id()));
+  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.member_organizations())) AND created_by_id = (SELECT authz.caller_id())
+    AND ((SELECT authz.acting_installation_id()) IS NULL
+      OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer'))));
 CREATE POLICY share_links_update ON share_links FOR UPDATE TO app
   USING (revoked_at IS NULL
     AND (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
       OR (created_by_id = (SELECT authz.caller_id())
-        AND organization_id = ANY (ARRAY(SELECT authz.member_organizations())))))
+        AND organization_id = ANY (ARRAY(SELECT authz.member_organizations()))
+        AND ((SELECT authz.acting_installation_id()) IS NULL
+          OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer'))))))
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
     OR (created_by_id = (SELECT authz.caller_id())
-      AND organization_id = ANY (ARRAY(SELECT authz.member_organizations()))));
+      AND organization_id = ANY (ARRAY(SELECT authz.member_organizations()))
+      AND ((SELECT authz.acting_installation_id()) IS NULL
+        OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer')))));
 CREATE POLICY share_links_delete ON share_links FOR DELETE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 
@@ -208,7 +214,8 @@ CREATE POLICY app_installations_delete ON app_installations FOR DELETE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 GRANT SELECT, INSERT, DELETE ON installation_permissions TO app;
 CREATE POLICY installation_permissions_select ON installation_permissions FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+    OR installation_id = (SELECT authz.acting_installation_id()));
 CREATE POLICY installation_permissions_insert ON installation_permissions FOR INSERT TO app
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
     AND (SELECT authz.acting_installation_id()) IS NULL);

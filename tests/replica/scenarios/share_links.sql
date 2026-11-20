@@ -17,6 +17,9 @@ INSERT INTO resources (id, kind, organization_id) VALUES (X'40000000000070008000
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) VALUES (X'20000000000070008000000000000001', X'40000000000070008000000000000001', 'folder', X'20000000000070008000000000000001', 'organization');
 INSERT INTO memberships (organization_id, user_id, state) VALUES (X'20000000000070008000000000000001', X'10000000000070008000000000000002', 'active');
 INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES (X'40000000000070008000000000000001', X'20000000000070008000000000000001', X'10000000000070008000000000000002', 'user', 'writer');
+INSERT INTO apps (id, organization_id, name) VALUES (X'70000000000070008000000000000001', X'20000000000070008000000000000001', 'reader app');
+INSERT INTO app_installations (id, app_id, organization_id) VALUES (X'80000000000070008000000000000001', X'70000000000070008000000000000001', X'20000000000070008000000000000001');
+INSERT INTO installation_permissions (installation_id, organization_id, kind, max_role) VALUES (X'80000000000070008000000000000001', X'20000000000070008000000000000001', 'organization', 'reader');
 
 --! client user=10000000-0000-7000-8000-000000000002 expect=ok
 INSERT INTO share_links (id, organization_id, token_hash, created_by_id) VALUES
@@ -29,6 +32,14 @@ UPDATE share_links SET revoked_at = '2126-01-01 00:00:00.000000+00:00' WHERE id 
 -- A creator cannot undo admin revocation.
 --! client user=10000000-0000-7000-8000-000000000002 expect=ok
 UPDATE share_links SET revoked_at = NULL WHERE id = X'a0000000000070008000000000000001';
+
+-- A reader installation cannot revoke the creator's link.
+--! client user=10000000-0000-7000-8000-000000000002 installation=80000000-0000-7000-8000-000000000001 expect=ok
+UPDATE share_links SET revoked_at = '2126-01-01 00:00:00.000000+00:00' WHERE id = X'a0000000000070008000000000000002';
+
+-- A reader installation cannot create a link.
+--! client user=10000000-0000-7000-8000-000000000002 installation=80000000-0000-7000-8000-000000000001 expect=42501
+INSERT INTO share_links (id, organization_id, token_hash, created_by_id) VALUES (X'a0000000000070008000000000000003', X'20000000000070008000000000000001', X'0303030303030303030303030303030303030303030303030303030303030303', X'10000000000070008000000000000002');
 
 -- A link cannot hold admin.
 --! client user=10000000-0000-7000-8000-000000000001 expect=23514

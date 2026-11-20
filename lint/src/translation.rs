@@ -25,6 +25,7 @@ pub const ATTRIBUTE_COLUMNS: &[(&str, &str)] = &[
     ("memberships", "state"),
     ("resources", "kind"),
     ("resources", "archived_at"),
+    ("resources", "writers_can_share"),
     ("share_links", "revoked_at"),
 ];
 

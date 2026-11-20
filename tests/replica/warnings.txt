@@ -96,6 +96,12 @@ dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trig
 dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
 dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
 dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
@@ -150,6 +156,7 @@ dropped GRANT: SQLite has no role or privilege model, so there is nothing for th
 dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER DEFAULT PRIVILEGES: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER DEFAULT PRIVILEGES: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
@@ -227,6 +234,7 @@ left TRIGGER platform_operators_audit on platform_operators to the server, since
 left TRIGGER platform_operators_update_audit on platform_operators to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
 left TRIGGER organizations_audit on organizations to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
 left TRIGGER organizations_update_audit on organizations to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
+dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.

@@ -77,22 +77,22 @@ impl Server {
         for entry in &TRANSLATION.manifest {
             // The catalog rows of a table known only at run time.
             let types: Line = diesel::sql_query(
-                "SELECT coalesce(json_agg(json_build_array(attname, format_type(atttypid, atttypmod)) \
-                 ORDER BY attnum), '[]')::text AS line FROM pg_attribute \
+                "SELECT coalesce(json_agg(json_build_array(attname, format_type(atttypid, atttypmod), \
+                 attgenerated <> '') ORDER BY attnum), '[]')::text AS line FROM pg_attribute \
                  WHERE attrelid = to_regclass($1) AND attnum > 0 AND NOT attisdropped",
             )
             .bind::<Text, _>(&entry.logical)
             .get_result(&mut connection)
             .context(|| format!("reading the columns of {}", entry.logical))?;
-            let types: Vec<(String, String)> =
+            let types: Vec<(String, String, bool)> =
                 serde_json::from_str(&types.line).map_err(|source| HarnessError::Rows {
                     table: entry.logical.clone(),
                     source,
                 })?;
             let kind = |column: &str| match types
                 .iter()
-                .find(|(name, _)| name == column)
-                .map(|(_, kind)| kind.as_str())
+                .find(|(name, _, _)| name == column)
+                .map(|(_, kind, _)| kind.as_str())
             {
                 Some("timestamp with time zone") => ColumnKind::Timestamp,
                 Some("bytea") => ColumnKind::Bytes,
@@ -106,6 +106,11 @@ impl Server {
                     .columns
                     .iter()
                     .map(|column| (column.name.clone(), kind(&column.name)))
+                    .collect(),
+                generated: types
+                    .iter()
+                    .filter(|(_, _, generated)| *generated)
+                    .map(|(name, _, _)| name.clone())
                     .collect(),
             });
             let privilege: Line = diesel::sql_query(
@@ -284,8 +289,7 @@ impl Server {
             return Ok("[]".to_owned());
         }
         let selected: Vec<String> = shape
-            .columns
-            .iter()
+            .delivered()
             .map(|(column, kind)| {
                 let column_name = quote(column);
                 match kind {

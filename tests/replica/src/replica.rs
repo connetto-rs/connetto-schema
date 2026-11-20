@@ -45,6 +45,10 @@ diesel::define_sql_function! {
     /// Answers whether the write running is a delivery from the server.
     fn replica_write_exempt() -> Bool;
 }
+diesel::define_sql_function! {
+    /// Answers a random version 4 UUID, the translation of `gen_random_uuid()`.
+    fn uuid() -> Text;
+}
 
 /// One principal's replica.
 pub struct Replica {
@@ -70,7 +74,8 @@ impl Replica {
             .context(|| "registering the jsonb functions".into())?;
         register_settings(&mut connection, principal)
             .context(|| "registering the setting functions".into())?;
-        let exempt = Arc::new(AtomicBool::new(false));
+        // The schema's own seed rows are the server's writes, so the script runs exempt.
+        let exempt = Arc::new(AtomicBool::new(true));
         let flag = Arc::clone(&exempt);
         // The flag is set and read on the thread running the statement, so
         // program order alone orders the two.
@@ -78,6 +83,10 @@ impl Replica {
             flag.load(Ordering::Relaxed)
         })
         .context(|| "registering the write exemption".into())?;
+        uuid_utils::register_nondeterministic_impl(&mut connection, || {
+            ::uuid::Uuid::new_v4().to_string()
+        })
+        .context(|| "registering the random UUID function".into())?;
         // A replica is a fresh database, so every file runs from scratch.
         for statement in TRANSLATION.script.iter() {
             let text = statement.to_string();
@@ -85,6 +94,7 @@ impl Replica {
                 .batch_execute(&text)
                 .context(|| format!("initializing a replica with {text}"))?;
         }
+        exempt.store(false, Ordering::Relaxed);
         Ok(Self {
             connection,
             principal: principal.clone(),
@@ -240,10 +250,9 @@ impl Replica {
                 .batch_execute(&format!("DELETE FROM {}", quote(&shape.physical)))?;
         }
         for (shape, rows) in delivered {
-            let names: Vec<String> = shape.columns.iter().map(|(name, _)| quote(name)).collect();
+            let names: Vec<String> = shape.delivered().map(|(name, _)| quote(name)).collect();
             let values: Vec<String> = shape
-                .columns
-                .iter()
+                .delivered()
                 .enumerate()
                 .map(|(index, (_, kind))| {
                     let value = format!("json_extract(value, '$[{index}]')");

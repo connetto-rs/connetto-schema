@@ -34,6 +34,7 @@ INSERT INTO installation_permissions (installation_id, organization_id, kind, ma
 -- Installation cannot read another organization.
 -- Membership helper stays in installation organization.
 -- Team administration stays in installation organization.
+-- Grantees stay in installation organization.
 -- installation cannot write another organization.
 --! client user=10000000-0000-7000-8000-000000000001 installation=90000000-0000-7000-8000-000000000001 expect=ok
 UPDATE resources SET writers_can_share = TRUE WHERE id = '40000000-0000-7000-8000-000000000003' RETURNING *;

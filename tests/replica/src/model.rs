@@ -1,6 +1,6 @@
 //! What the two engines are compared on.
 
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use thiserror::Error;
 
@@ -136,6 +136,8 @@ pub struct TableShape {
     pub physical: String,
     /// Each stored column with its kind, in declaration order.
     pub columns: Vec<(String, ColumnKind)>,
+    /// The generated columns, which each engine computes from the row itself.
+    pub generated: BTreeSet<String>,
 }
 
 impl TableShape {
@@ -146,6 +148,14 @@ impl TableShape {
             .iter()
             .find(|(name, _)| name == column)
             .map_or(ColumnKind::Other, |(_, kind)| *kind)
+    }
+
+    /// The columns a delivery carries, every stored column but the generated
+    /// ones, in declaration order.
+    pub fn delivered(&self) -> impl Iterator<Item = &(String, ColumnKind)> {
+        self.columns
+            .iter()
+            .filter(|(name, _)| !self.generated.contains(name))
     }
 }
 

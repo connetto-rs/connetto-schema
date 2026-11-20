@@ -56,7 +56,7 @@ pub const WRITE_EXEMPTION_FUNCTION: &str = "replica_write_exempt";
 
 /// The tables only the server writes, whose rows a replica receives and never
 /// derives from its own writes.
-pub const SERVER_DERIVED_TABLES: &[&str] = &["audit_events", "platform_audit_events"];
+pub const SERVER_DERIVED_TABLES: &[&str] = &["audit_events", "grantees", "platform_audit_events"];
 
 /// The SQLite function that answers `setting` on the replica.
 #[must_use]
@@ -147,7 +147,7 @@ pub fn query_options() -> Pg2SqliteOptions {
     let mut options = Pg2SqliteOptions::default()
         .with_uuid_representation(UuidRepresentation::Text)
         .with_array_representation(ArrayRepresentation::Json)
-        .with_rls_audit_table_name("rls_audit")
+        .with_rls_audit_table_name("rls_violations")
         .with_write_exemption_function(WRITE_EXEMPTION_FUNCTION)
         .with_jsonb_functions(jsonb_functions())
         .with_server_derived_writes_omitted()

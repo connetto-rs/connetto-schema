@@ -4,8 +4,8 @@
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
 
--- Platform audit is hidden from organization admins.
---! client user=10000000-0000-7000-8000-000000000001 expect=ok
+-- Platform audit is hidden from organization admins. The founding grant stamps the organization on the server.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=organizations
 INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
 INSERT INTO resources (id, kind, organization_id) VALUES ('20000000-0000-7000-8000-000000000001', 'organization', '20000000-0000-7000-8000-000000000001');
 INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001', 'active');

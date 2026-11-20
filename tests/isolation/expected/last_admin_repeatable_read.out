@@ -1,0 +1,29 @@
+Parsed test spec with 3 sessions
+
+starting permutation: first_begin first_snapshot second_begin second_snapshot first_write first_finish second_write second_finish invariant
+step first_begin: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step first_snapshot: SELECT count(*) FROM grants;
+count
+-----
+    2
+(1 row)
+
+step second_begin: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step second_snapshot: SELECT count(*) FROM grants;
+count
+-----
+    2
+(1 row)
+
+step first_write: DELETE FROM grants WHERE resource_id = '00000000-0000-0000-0000-000000000001' AND grantee_id = '00000000-0000-0000-0000-000000000002'; SET CONSTRAINTS ALL IMMEDIATE;
+ERROR:  row-lock checks require read committed or serializable
+step first_finish: ROLLBACK;
+step second_write: DELETE FROM grants WHERE resource_id = '00000000-0000-0000-0000-000000000001' AND grantee_id = '00000000-0000-0000-0000-000000000003'; SET CONSTRAINTS ALL IMMEDIATE;
+ERROR:  row-lock checks require read committed or serializable
+step second_finish: ROLLBACK;
+step invariant: SELECT count(*) AS administrators FROM grants WHERE resource_id = '00000000-0000-0000-0000-000000000001' AND role = 'admin' AND expires_at IS NULL;
+administrators
+--------------
+             2
+(1 row)
+

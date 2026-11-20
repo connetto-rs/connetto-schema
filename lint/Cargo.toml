@@ -1,0 +1,19 @@
+[package]
+name = "connetto-schema-lint"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "The SQLippy and rls2fga configuration connetto-schema is written for, and a gate running both over the slices"
+
+[dependencies]
+rls2fga = { git = "https://github.com/connetto-rs/rls2fga", branch = "main" }
+sqlippy = { git = "https://github.com/connetto-rs/SQLippy", branch = "main" }
+sqlparser = { git = "https://github.com/apache/datafusion-sqlparser-rs", branch = "main", features = ["visitor"] }
+
+[patch.crates-io]
+diesel = { git = "https://github.com/diesel-rs/diesel", branch = "main" }
+sqlparser = { git = "https://github.com/apache/datafusion-sqlparser-rs", branch = "main" }
+sql-values = { git = "https://github.com/connetto-rs/sql-values", branch = "main" }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

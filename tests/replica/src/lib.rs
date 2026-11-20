@@ -148,7 +148,7 @@ pub fn deployment() -> Deployment {
 #[must_use]
 pub fn query_options() -> Pg2SqliteOptions {
     let mut options = Pg2SqliteOptions::default()
-        .with_uuid_representation(UuidRepresentation::Text)
+        .with_uuid_representation(UuidRepresentation::Blob)
         .with_array_representation(ArrayRepresentation::Json)
         .with_rls_audit_table_name("rls_violations")
         .with_write_exemption_function(WRITE_EXEMPTION_FUNCTION)

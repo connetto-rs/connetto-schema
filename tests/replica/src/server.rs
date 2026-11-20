@@ -96,6 +96,7 @@ impl Server {
             {
                 Some("timestamp with time zone") => ColumnKind::Timestamp,
                 Some("bytea") => ColumnKind::Bytes,
+                Some("uuid") => ColumnKind::Uuid,
                 Some("jsonb") => ColumnKind::Jsonb,
                 _ => ColumnKind::Other,
             };
@@ -248,6 +249,7 @@ impl Server {
                              ELSE {column_name}::text END"
                         ),
                         ColumnKind::Bytes => format!("encode({column_name}, 'hex')"),
+                        ColumnKind::Uuid => format!("replace({column_name}::text, '-', '')"),
                         ColumnKind::Jsonb => format!("{column_name}::text"),
                         ColumnKind::Other => column_name,
                     }
@@ -298,6 +300,7 @@ impl Server {
                          'YYYY-MM-DD HH24:MI:SS.MS') || '000+00:00' ELSE {column_name}::text END"
                     ),
                     ColumnKind::Bytes => format!("encode({column_name}, 'hex')"),
+                    ColumnKind::Uuid => format!("replace({column_name}::text, '-', '')"),
                     ColumnKind::Jsonb => format!("{column_name}::text"),
                     ColumnKind::Other => column_name,
                 }

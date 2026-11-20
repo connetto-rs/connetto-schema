@@ -121,6 +121,9 @@ pub enum ColumnKind {
     Timestamp,
     /// A `bytea`, a `BLOB` on the replica.
     Bytes,
+    /// A `uuid`, a 16-byte `BLOB` on the replica, compared as its 32 hex
+    /// digits.
+    Uuid,
     /// A `jsonb`, held on the replica as the text PostgreSQL prints.
     Jsonb,
     /// Anything else, whose JSON value both engines agree on.

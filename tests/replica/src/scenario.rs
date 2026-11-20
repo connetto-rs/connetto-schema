@@ -15,6 +15,10 @@
 //!   rows the replica may show otherwise than PostgreSQL until the server's
 //!   rows arrive.
 //!
+//! A client writes a `uuid` as the 16-byte blob the replica stores, such as
+//! `X'10000000000070008000000000000001'`, the form a bound value takes. A
+//! header names it in its text form, as the session setting holds it.
+//!
 //! Other lines starting with `--` are comments.
 
 use std::{

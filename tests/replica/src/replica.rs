@@ -10,7 +10,7 @@ use diesel::{
     Connection, RunQueryDsl, SqliteConnection,
     connection::SimpleConnection,
     result::{DatabaseErrorKind, Error as DieselError},
-    sql_types::{Bool, Nullable, Text},
+    sql_types::{Binary, Bool, Nullable, Text},
 };
 use pg2sqlite::prelude::postgres_error;
 
@@ -46,8 +46,9 @@ diesel::define_sql_function! {
     fn replica_write_exempt() -> Bool;
 }
 diesel::define_sql_function! {
-    /// Answers a random version 4 UUID, the translation of `gen_random_uuid()`.
-    fn uuid() -> Text;
+    /// Answers a random version 4 UUID as its 16 bytes, the translation of
+    /// `gen_random_uuid()`.
+    fn uuid() -> Binary;
 }
 
 /// One principal's replica.
@@ -84,7 +85,7 @@ impl Replica {
         })
         .context(|| "registering the write exemption".into())?;
         uuid_utils::register_nondeterministic_impl(&mut connection, || {
-            ::uuid::Uuid::new_v4().to_string()
+            ::uuid::Uuid::new_v4().as_bytes().to_vec()
         })
         .context(|| "registering the random UUID function".into())?;
         // A replica is a fresh database, so every file runs from scratch.
@@ -184,7 +185,10 @@ impl Replica {
                         "CASE WHEN {column_name} IN ('infinity', '-infinity') THEN {column_name} \
                          ELSE unixepoch({column_name}, 'subsec') END"
                     ),
-                    ColumnKind::Bytes => format!("lower(hex({column_name}))"),
+                    // SQLite's hex(NULL) is the empty string, so NULL is kept apart.
+                    ColumnKind::Bytes | ColumnKind::Uuid => format!(
+                        "CASE WHEN {column_name} IS NULL THEN NULL ELSE lower(hex({column_name})) END"
+                    ),
                     ColumnKind::Jsonb | ColumnKind::Other => column_name,
                 }
             })
@@ -256,7 +260,7 @@ impl Replica {
                 .enumerate()
                 .map(|(index, (_, kind))| {
                     let value = format!("json_extract(value, '$[{index}]')");
-                    if *kind == ColumnKind::Bytes {
+                    if matches!(kind, ColumnKind::Bytes | ColumnKind::Uuid) {
                         format!("unhex({value})")
                     } else {
                         value

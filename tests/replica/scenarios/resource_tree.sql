@@ -45,8 +45,9 @@ UPDATE resource_parents SET parent_id = '50000000-0000-7000-8000-000000000002', 
 --! client user=10000000-0000-7000-8000-000000000001 expect=23514
 DELETE FROM resource_parents WHERE id = '40000000-0000-7000-8000-000000000002';
 
--- A resource cannot cross organizations.
---! client user=10000000-0000-7000-8000-000000000001 expect=23503
+-- A resource cannot cross organizations. The key reaches into resources a policy hides,
+-- so only the server refuses it.
+--! client user=10000000-0000-7000-8000-000000000001 upload=23503
 UPDATE resource_parents SET parent_id = '20000000-0000-7000-8000-000000000001' WHERE id = '40000000-0000-7000-8000-000000000003';
 
 -- A resource cycle is rejected.

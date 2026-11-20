@@ -7,9 +7,12 @@
 //! template `tests/run.sh` builds and one replica per acting principal through
 //! the same steps. A client step runs on its principal's replica and, reverse
 //! translated, as `app` on PostgreSQL, and both engines have to give the
-//! verdict the step expects and show the principal the same rows. After every
-//! step the server commits, each replica receives the rows its principal reads
-//! on PostgreSQL, the way connetto delivers them.
+//! verdict the step expects and show the principal the same rows. A write
+//! only the server can refuse, because it rests on rows the principal never
+//! receives, has to be accepted by the replica and refused by PostgreSQL.
+//! After every step the server commits, each replica receives the rows its
+//! principal reads on PostgreSQL, the way connetto delivers them, which also
+//! reverts a write the server refused.
 
 mod error;
 mod model;
@@ -32,7 +35,7 @@ use pg2sqlite::prelude::{
     SessionVariableMapping, TableManifestEntry, UuidRepresentation,
 };
 pub use replica::Replica;
-pub use scenario::{Failure, Scenario, Step};
+pub use scenario::{Failure, Outcome, Scenario, Step};
 pub use server::Server;
 use sql_traits::structs::{Deployment, ParserDB, SessionSetting, SetPacking, SettingValue};
 use sqlparser::ast::DataType;
@@ -64,10 +67,10 @@ pub fn setting_function(setting: &str) -> String {
     setting.replace('.', "_")
 }
 
-/// The collation and functions the replica's `jsonb` columns use.
+/// The functions and collation the replica's `jsonb` columns use.
 #[must_use]
 pub fn jsonb_functions() -> JsonbFunctions {
-    JsonbFunctions::new("pg_jsonb", "pg_jsonb")
+    JsonbFunctions::new("pg_jsonb", "pg_jsonb_text", "pg_jsonb")
 }
 
 /// The repository root.

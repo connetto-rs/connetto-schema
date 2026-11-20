@@ -8,9 +8,12 @@
 //! - `--! client user=<uuid> expect=ok` opens SQLite statements one
 //!   principal's client runs in one transaction. Besides `user` a header may
 //!   name `installation`, `original`, `links` and `email`, the other
-//!   [`crate::SETTINGS`]. `expect` is `ok` or the SQLSTATE PostgreSQL refuses
-//!   with. `diverges=grants,memberships` names tables whose rows the replica
-//!   may show otherwise than PostgreSQL until the server's rows arrive.
+//!   [`crate::SETTINGS`]. `expect` is `ok` or the SQLSTATE both engines
+//!   refuse with. `upload=<SQLSTATE>` in its place is a write the replica
+//!   accepts and the server refuses at upload, after which the client reverts
+//!   to the server's rows. `diverges=grants,memberships` names tables whose
+//!   rows the replica may show otherwise than PostgreSQL until the server's
+//!   rows arrive.
 //!
 //! Other lines starting with `--` are comments.
 
@@ -42,13 +45,35 @@ pub enum Step {
         line: usize,
         /// Whose client.
         principal: Principal,
-        /// `ok` or the SQLSTATE PostgreSQL refuses with.
-        expect: String,
+        /// What the two engines answer.
+        expect: Outcome,
         /// The tables whose rows may differ until the server's rows arrive.
         diverges: Vec<String>,
         /// The SQLite statements.
         sql: String,
     },
+}
+
+/// What the two engines answer a client step's write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// Both engines accept the write.
+    Accepted,
+    /// Both engines refuse the write with this SQLSTATE.
+    Refused(String),
+    /// The replica accepts the write and the server refuses its upload with
+    /// this SQLSTATE, so the client reverts it.
+    RefusedAtUpload(String),
+}
+
+impl fmt::Display for Outcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Accepted => formatter.write_str("ok"),
+            Self::Refused(sqlstate) => formatter.write_str(sqlstate),
+            Self::RefusedAtUpload(sqlstate) => write!(formatter, "{sqlstate} at upload"),
+        }
+    }
 }
 
 impl Step {
@@ -222,38 +247,53 @@ impl Scenario {
                     };
                     let (sqlite, postgres) = statements(&self.path, step.line(), sql)?;
                     let server_verdict = server.write(principal, &postgres)?;
-                    let expected = match (expect.as_str(), &server_verdict) {
-                        ("ok", Verdict::Accepted) => true,
-                        (code, Verdict::Refused { sqlstate, .. }) => code == sqlstate,
+                    let expected = match (expect, &server_verdict) {
+                        (Outcome::Accepted, Verdict::Accepted) => true,
+                        (
+                            Outcome::Refused(code) | Outcome::RefusedAtUpload(code),
+                            Verdict::Refused { sqlstate, .. },
+                        ) => code == sqlstate,
                         _ => false,
                     };
                     if !expected {
                         return failure(Mismatch::Expectation {
-                            expected: expect.clone(),
+                            expected: expect.to_string(),
                             actual: server_verdict,
                         });
                     }
                     let replica = &mut replicas[index];
                     let replica_verdict = replica.write(&sqlite)?;
-                    if !replica_verdict.agrees_with(&server_verdict) {
+                    let agrees = match expect {
+                        Outcome::RefusedAtUpload(_) => replica_verdict == Verdict::Accepted,
+                        Outcome::Accepted | Outcome::Refused(_) => {
+                            replica_verdict.agrees_with(&server_verdict)
+                        }
+                    };
+                    if !agrees {
                         return failure(Mismatch::Verdict {
                             replica: replica_verdict,
                             server: server_verdict,
                         });
                     }
-                    if server_verdict == Verdict::Accepted {
-                        let compared = shapes.iter().filter(|shape| {
-                            !SERVER_DERIVED_TABLES.contains(&shape.logical.as_str())
-                                && !diverges.contains(&shape.logical)
-                        });
-                        if let Some(mismatch) =
-                            compare(&mut server, replica, compared, Moment::BeforeSync)?
-                        {
-                            return failure(mismatch);
+                    match expect {
+                        Outcome::Accepted => {
+                            let compared = shapes.iter().filter(|shape| {
+                                !SERVER_DERIVED_TABLES.contains(&shape.logical.as_str())
+                                    && !diverges.contains(&shape.logical)
+                            });
+                            if let Some(mismatch) =
+                                compare(&mut server, replica, compared, Moment::BeforeSync)?
+                            {
+                                return failure(mismatch);
+                            }
+                            synchronize(&mut server, &mut replicas, &shapes)?
                         }
-                        synchronize(&mut server, &mut replicas, &shapes)?
-                    } else {
-                        None
+                        // Delivering the server's rows reverts the write the
+                        // server refused, as the client does on a rejection.
+                        Outcome::RefusedAtUpload(_) => {
+                            synchronize(&mut server, &mut replicas, &shapes)?
+                        }
+                        Outcome::Refused(_) => None,
                     }
                 }
             };
@@ -283,15 +323,30 @@ fn parse_step(line: usize, header: &str, sql: String) -> Result<Step, String> {
                 let (key, value) = word
                     .split_once('=')
                     .ok_or_else(|| format!("`{word}` is no key=value"))?;
-                match key {
-                    "expect" => expect = Some(value.to_owned()),
-                    "diverges" => diverges.extend(value.split(',').map(str::to_owned)),
-                    _ => settings.push((key, value)),
+                let outcome = match (key, value) {
+                    ("expect", "ok") => Outcome::Accepted,
+                    ("expect", sqlstate) => Outcome::Refused(sqlstate.to_owned()),
+                    ("upload", "ok") => {
+                        return Err("`upload=` names the SQLSTATE the server refuses with".into());
+                    }
+                    ("upload", sqlstate) => Outcome::RefusedAtUpload(sqlstate.to_owned()),
+                    ("diverges", tables) => {
+                        diverges.extend(tables.split(',').map(str::to_owned));
+                        continue;
+                    }
+                    _ => {
+                        settings.push((key, value));
+                        continue;
+                    }
+                };
+                if expect.replace(outcome).is_some() {
+                    return Err("a client step takes one `expect=` or `upload=`".into());
                 }
             }
             let principal =
                 Principal::new(settings).map_err(|key| format!("`{key}` names no setting"))?;
-            let expect = expect.ok_or_else(|| "a client step needs expect=".to_owned())?;
+            let expect =
+                expect.ok_or_else(|| "a client step needs `expect=` or `upload=`".to_owned())?;
             Ok(Step::Client {
                 line,
                 principal,

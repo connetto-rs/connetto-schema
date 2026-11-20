@@ -34,6 +34,12 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS
   SELECT 20
 $$;
 
+CREATE FUNCTION authz.installation_organizations() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT permission.organization_id FROM public.installation_permissions permission
+  WHERE permission.installation_id = authz.acting_installation_id()
+$$;
+
 CREATE FUNCTION authz.caller_grantees() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE reached (id) AS (
@@ -47,14 +53,20 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
     UNION
     SELECT membership.organization_id FROM public.memberships membership
     WHERE membership.user_id = authz.caller_id() AND membership.state = 'active'
+      AND (authz.acting_installation_id() IS NULL
+        OR membership.organization_id IN (SELECT authz.installation_organizations()))
     UNION
     SELECT member.team_id FROM public.team_members member
     JOIN public.memberships membership ON membership.organization_id = member.organization_id AND membership.user_id = member.user_id
     WHERE member.user_id = authz.caller_id() AND membership.state = 'active'
+      AND (authz.acting_installation_id() IS NULL
+        OR member.organization_id IN (SELECT authz.installation_organizations()))
     UNION
     SELECT link.id FROM public.share_links link
     WHERE link.id = ANY (authz.link_ids())
       AND link.revoked_at IS NULL AND (link.expires_at IS NULL OR link.expires_at > now())
+      AND (authz.acting_installation_id() IS NULL
+        OR link.organization_id IN (SELECT authz.installation_organizations()))
     UNION
     SELECT parent.parent_id FROM public.team_parents parent JOIN reached ON parent.id = reached.id
   )
@@ -215,6 +227,7 @@ ALTER FUNCTION authz.link_ids() OWNER TO authz_owner;
 ALTER FUNCTION authz.verified_email() OWNER TO authz_owner;
 ALTER FUNCTION authz.max_tree_depth() OWNER TO authz_owner;
 ALTER FUNCTION authz.caller_grantees() OWNER TO authz_owner;
+ALTER FUNCTION authz.installation_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.capped_kinds(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.resources_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.sharable_grants() OWNER TO authz_owner;

@@ -1,0 +1,40 @@
+-- tests/behaviour/installations.sql on both engines.
+
+--! server
+SET ROLE identity_writer;
+INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
+
+-- The server stamps the founding time on the organization.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=organizations
+INSERT INTO organizations (id, created_by_id) VALUES (X'20000000000070008000000000000001', X'10000000000070008000000000000001');
+INSERT INTO resources (id, kind, organization_id) VALUES (X'20000000000070008000000000000001', 'organization', X'20000000000070008000000000000001');
+INSERT INTO memberships (organization_id, user_id, state) VALUES (X'20000000000070008000000000000001', X'10000000000070008000000000000001', 'active');
+INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role) VALUES (X'20000000000070008000000000000001', X'20000000000070008000000000000001', X'10000000000070008000000000000001', 'user', 'admin');
+INSERT INTO organizations (id, created_by_id) VALUES (X'20000000000070008000000000000002', X'10000000000070008000000000000001');
+INSERT INTO resources (id, kind, organization_id) VALUES (X'20000000000070008000000000000002', 'organization', X'20000000000070008000000000000002');
+INSERT INTO memberships (organization_id, user_id, state) VALUES (X'20000000000070008000000000000002', X'10000000000070008000000000000001', 'active');
+INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role) VALUES (X'20000000000070008000000000000002', X'20000000000070008000000000000002', X'10000000000070008000000000000001', 'user', 'admin');
+INSERT INTO resources (id, kind, organization_id) VALUES
+  (X'40000000000070008000000000000003', 'folder', X'20000000000070008000000000000002');
+INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+  VALUES (X'20000000000070008000000000000002', X'40000000000070008000000000000003', 'folder', X'20000000000070008000000000000002', 'organization');
+INSERT INTO teams (id, organization_id) VALUES
+  (X'30000000000070008000000000000004', X'20000000000070008000000000000002'),
+  (X'30000000000070008000000000000005', X'20000000000070008000000000000001');
+INSERT INTO team_members (team_id, organization_id, user_id, team_role) VALUES
+  (X'30000000000070008000000000000004', X'20000000000070008000000000000002', X'10000000000070008000000000000001', 'admin');
+INSERT INTO apps (id, organization_id, name) VALUES
+  (X'80000000000070008000000000000001', X'20000000000070008000000000000001', 'audit app');
+INSERT INTO app_installations (id, app_id, organization_id) VALUES
+  (X'90000000000070008000000000000001', X'80000000000070008000000000000001', X'20000000000070008000000000000001');
+INSERT INTO installation_permissions (installation_id, organization_id, kind, max_role) VALUES
+  (X'90000000000070008000000000000001', X'20000000000070008000000000000001', 'folder', 'admin'),
+  (X'90000000000070008000000000000001', X'20000000000070008000000000000001', 'organization', 'admin');
+
+-- Installation cannot read another organization.
+-- Membership helper stays in installation organization.
+-- Team administration stays in installation organization.
+-- Grantees stay in installation organization.
+-- installation cannot write another organization.
+--! client user=10000000-0000-7000-8000-000000000001 installation=90000000-0000-7000-8000-000000000001 expect=ok
+UPDATE resources SET writers_can_share = TRUE WHERE id = X'40000000000070008000000000000003' RETURNING *;

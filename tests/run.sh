@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs the pgTAP files under tests/behaviour with pg_prove and the isolation specs under
-# tests/isolation with pg_isolation_regress, on each PostgreSQL major given (17 and 18 by default).
+# Runs the pgTAP files under tests/behaviour with pg_prove, the isolation specs under tests/isolation
+# with pg_isolation_regress and the replica scenarios under tests/replica, on each PostgreSQL major
+# given (17 and 18 by default).
 set -euo pipefail
 shopt -s nullglob
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -28,8 +29,8 @@ psql() {
 for major in "$@"; do
   image="connetto-schema-test:$major"
   docker build -q --build-arg "PG_MAJOR=$major" -t "$image" "$root/tests" > /dev/null
-  container=$(docker run -d --tmpfs /var/lib/postgresql -e POSTGRES_HOST_AUTH_METHOD=trust \
-    -v "$root:/schema:ro" "$image")
+  container=$(docker run -d -p 127.0.0.1::5432 --tmpfs /var/lib/postgresql \
+    -e POSTGRES_HOST_AUTH_METHOD=trust -v "$root:/schema:ro" "$image")
   # The entrypoint restarts the server after initialisation, and only the final server listens on TCP.
   ready=
   for _ in $(seq 60); do
@@ -80,6 +81,11 @@ for major in "$@"; do
       exit "$status"
     fi
   done
+
+  # Cargo reads the stack size in tests/replica/.cargo/config.toml only from inside the crate.
+  (cd "$root/tests/replica" &&
+    REPLICA_DATABASE_URL="postgres://postgres@$(docker port "$container" 5432/tcp | head -n 1)" \
+      cargo test --release --locked)
 
   cleanup
   container=

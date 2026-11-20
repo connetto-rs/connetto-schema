@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(4);
+SELECT plan(5);
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
@@ -36,6 +36,8 @@ SELECT is_empty($query$SELECT 1 FROM resources WHERE id = '40000000-0000-7000-80
 SELECT is_empty($query$SELECT 1 FROM authz.member_organizations() organization_id WHERE organization_id = '20000000-0000-7000-8000-000000000002'$query$, 'membership helper stays in installation organization');
 
 SELECT is_empty($query$SELECT 1 FROM authz.administered_teams() team_id WHERE team_id = '30000000-0000-7000-8000-000000000004'$query$, 'team administration stays in installation organization');
+
+SELECT is_empty($query$SELECT 1 FROM grantees WHERE id IN ('20000000-0000-7000-8000-000000000002', '30000000-0000-7000-8000-000000000004')$query$, 'grantees stay in installation organization');
 
 SELECT is_empty($query$UPDATE resources SET writers_can_share = TRUE WHERE id = '40000000-0000-7000-8000-000000000003' RETURNING *$query$, 'installation cannot write another organization');
 

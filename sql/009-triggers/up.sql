@@ -15,6 +15,7 @@ GRANT UPDATE (id, founded_at) ON organizations TO authz_writer;
 GRANT SELECT ON memberships, invitations TO authz_writer;
 GRANT UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
+GRANT SELECT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
 GRANT UPDATE (archived_at) ON resources TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
@@ -328,6 +329,19 @@ $$;
 CREATE CONSTRAINT TRIGGER organizations_admin_required AFTER INSERT ON organizations
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_founded();
 
+CREATE FUNCTION authz_write.check_organization_identifier() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.audit_events event WHERE event.organization_id = NEW.id) THEN
+    RAISE EXCEPTION 'organization % was deleted and its identifier is retired', NEW.id USING ERRCODE = 'unique_violation';
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER organizations_identifier_retired AFTER INSERT ON organizations
+  FOR EACH ROW EXECUTE FUNCTION authz_write.check_organization_identifier();
+
 CREATE FUNCTION authz_write.stamp_founded_at() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -490,6 +504,7 @@ ALTER FUNCTION authz_write.check_membership_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_membership_grants() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.accept_invitation() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_founded() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_organization_identifier() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.stamp_founded_at() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.record_audit_event() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.record_platform_audit_event() OWNER TO authz_writer;

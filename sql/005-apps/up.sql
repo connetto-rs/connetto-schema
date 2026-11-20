@@ -27,5 +27,6 @@ CREATE TABLE installation_permissions (
   PRIMARY KEY (installation_id, kind),
   FOREIGN KEY (organization_id, installation_id) REFERENCES app_installations (organization_id, id)
 );
+CREATE INDEX ON installation_permissions (organization_id, installation_id);
 ALTER TABLE installation_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE installation_permissions FORCE ROW LEVEL SECURITY;

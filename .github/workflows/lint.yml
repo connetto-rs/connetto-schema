@@ -42,3 +42,31 @@ jobs:
           RUSTDOCFLAGS: -D warnings
       - name: SQLippy reports nothing and rls2fga translates every clause at A
         run: cargo run --locked --release
+
+  replica:
+    runs-on: ubuntu-26.04
+    defaults:
+      run:
+        working-directory: tests/replica
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup default stable
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tests/replica/target
+          key: ${{ runner.os }}-replica-lint-${{ hashFiles('tests/replica/Cargo.lock') }}
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Documentation
+        run: cargo doc --locked --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings

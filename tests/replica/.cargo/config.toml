@@ -1,0 +1,3 @@
+[env]
+# pg2sqlite recurses deeper than the 2 MiB a test thread gets by default.
+RUST_MIN_STACK = "67108864"

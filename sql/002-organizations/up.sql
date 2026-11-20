@@ -55,6 +55,7 @@ CREATE TABLE team_parents (
   FOREIGN KEY (organization_id, parent_id) REFERENCES teams (organization_id, id)
 );
 CREATE INDEX ON team_parents (parent_id);
+CREATE INDEX ON team_parents (organization_id);
 ALTER TABLE team_parents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_parents FORCE ROW LEVEL SECURITY;
 
@@ -68,5 +69,6 @@ CREATE TABLE team_members (
   FOREIGN KEY (organization_id, user_id) REFERENCES memberships (organization_id, user_id) ON DELETE CASCADE
 );
 CREATE INDEX ON team_members (user_id, organization_id);
+CREATE INDEX ON team_members (organization_id);
 ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_members FORCE ROW LEVEL SECURITY;

@@ -16,10 +16,10 @@ count
 (1 row)
 
 step first_write: DELETE FROM grants WHERE resource_id = '00000000-0000-0000-0000-000000000001' AND grantee_id = '00000000-0000-0000-0000-000000000002'; SET CONSTRAINTS ALL IMMEDIATE;
-ERROR:  organization checks require read committed or serializable
+ERROR:  row-lock checks require read committed or serializable
 step first_finish: ROLLBACK;
 step second_write: DELETE FROM grants WHERE resource_id = '00000000-0000-0000-0000-000000000001' AND grantee_id = '00000000-0000-0000-0000-000000000003'; SET CONSTRAINTS ALL IMMEDIATE;
-ERROR:  organization checks require read committed or serializable
+ERROR:  row-lock checks require read committed or serializable
 step second_finish: ROLLBACK;
 step invariant: SELECT count(*) AS administrators FROM grants WHERE resource_id = '00000000-0000-0000-0000-000000000001' AND role = 'admin' AND expires_at IS NULL;
 administrators

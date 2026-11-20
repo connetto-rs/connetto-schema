@@ -197,6 +197,17 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
     AND EXISTS (SELECT 1 FROM public.platform_operators operator WHERE operator.id = authz.caller_id())
 $$;
 
+-- REPEATABLE READ keeps the snapshot taken before a row lock waited, so a check
+-- run after the lock would still miss the write it waited for.
+CREATE FUNCTION authz.refuse_repeatable_read() RETURNS VOID
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
+    RAISE EXCEPTION 'row-lock checks require read committed or serializable' USING ERRCODE = 'invalid_transaction_state';
+  END IF;
+END
+$$;
+
 ALTER FUNCTION authz.caller_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.acting_installation_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.original_actor_id() OWNER TO authz_owner;
@@ -219,5 +230,7 @@ ALTER FUNCTION authz.is_archived(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.has_archived_ancestor(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.blocking_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.is_platform_operator() OWNER TO authz_owner;
+ALTER FUNCTION authz.refuse_repeatable_read() OWNER TO authz_owner;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz FROM PUBLIC, app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA authz TO app;
+GRANT EXECUTE ON FUNCTION authz.refuse_repeatable_read() TO PUBLIC;

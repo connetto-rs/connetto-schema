@@ -148,9 +148,7 @@ CREATE CONSTRAINT TRIGGER resources_ownable_required AFTER INSERT ON resources
 CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
-    RAISE EXCEPTION 'organization checks require read committed or serializable' USING ERRCODE = 'invalid_transaction_state';
-  END IF;
+  PERFORM authz.refuse_repeatable_read();
   PERFORM organization.id FROM public.organizations organization
     WHERE organization.id = target_organization FOR NO KEY UPDATE;
   RETURN FOUND;

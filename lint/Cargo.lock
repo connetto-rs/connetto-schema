@@ -59,9 +59,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.11.2"
+version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
+checksum = "02f0e023adb368345ce0ca6cdfc0f24a06554468d0e8503e14a0841de79bfa69"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -490,7 +490,7 @@ checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 [[package]]
 name = "rls2fga"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/rls2fga?branch=main#e7483cc359fc060a968f3fe0a038395120944286"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#aa79f3277170fe77c49b8c26aab6ada861e109a5"
 dependencies = [
  "rls2fga-types",
  "serde",
@@ -504,7 +504,7 @@ dependencies = [
 [[package]]
 name = "rls2fga-types"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/rls2fga?branch=main#e7483cc359fc060a968f3fe0a038395120944286"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#aa79f3277170fe77c49b8c26aab6ada861e109a5"
 dependencies = [
  "serde",
  "sql-values 0.6.0",
@@ -586,7 +586,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#e25b1845c46c65481d558ee43cfef0dc18d7b210"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#3ec06a4d6fc84ed37afe3c47f85f36613a7274ce"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -595,6 +595,7 @@ dependencies = [
  "sqlparser",
  "sqlparser-canonicalize",
  "sqlparser-plpgsql",
+ "sqlstate",
  "thiserror",
  "unicode-normalization",
 ]
@@ -612,7 +613,7 @@ dependencies = [
 [[package]]
 name = "sql-values"
 version = "0.6.0"
-source = "git+https://github.com/connetto-rs/sql-values?branch=main#d599af64e6d73950e9f48c5a969a0bdfe9835247"
+source = "git+https://github.com/connetto-rs/sql-values?branch=main#bee0f26da9575f1f0ab38550e3188cb25590058e"
 dependencies = [
  "jiff",
  "thiserror",
@@ -621,7 +622,7 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#2fad1faa4245b4685d940d361baacaf7acf60f46"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#baa0a599c02006dbf6ed75840742f6ada5cb6499"
 dependencies = [
  "heck",
  "inflection-rs",
@@ -635,7 +636,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#658fd76c2012e93b76c00dc16cb7cc6fdfcabf14"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#0d22d9901a2edbde7ac35952db47b2b983011fb7"
 dependencies = [
  "log",
  "recursive",
@@ -667,7 +668,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#658fd76c2012e93b76c00dc16cb7cc6fdfcabf14"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#0d22d9901a2edbde7ac35952db47b2b983011fb7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -798,4 +799,4 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 [[patch.unused]]
 name = "diesel"
 version = "2.4.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=main#35c7c77307c823c6ffdf704f7346fb1385dd49a0"
+source = "git+https://github.com/diesel-rs/diesel?branch=main#fc7dc64457ed2dba404a0ae485410053a2d3c7ab"

@@ -1375,51 +1375,9 @@ ALTER FUNCTION authz_write.record_platform_audit_event() OWNER TO authz_writer;
 
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz_write FROM PUBLIC, app;
 """
+single_crate = true
 
 [[crates]]
-name = "connetto-schema-apps"
-tables = ["app_installations", "apps", "installation_permissions"]
-
-[[crates]]
-name = "connetto-schema-audit_events"
-tables = ["audit_events"]
-
-[[crates]]
-name = "connetto-schema-grantees"
-tables = ["grantees", "organization_blocks", "organizations", "platform_operators", "share_links", "users"]
-
-[[crates]]
-name = "connetto-schema-resources"
-tables = ["grants", "ownables", "resource_parents", "resources"]
-
-[[crates]]
-name = "connetto-schema-teams"
-tables = ["invitations", "memberships", "team_members", "team_parents", "teams"]
-
-[[crates]]
-name = "connetto-schema-platform_audit_events"
-tables = ["platform_audit_events"]
-
-[[crates]]
-name = "connetto-schema-authz-audit_operation"
-types = ["authz.audit_operation"]
-
-[[crates]]
-name = "connetto-schema-authz-grantee_kind"
-types = ["authz.grantee_kind"]
-
-[[crates]]
-name = "connetto-schema-authz-membership_state"
-types = ["authz.membership_state"]
-
-[[crates]]
-name = "connetto-schema-authz-resource_kind"
-types = ["authz.resource_kind"]
-
-[[crates]]
-name = "connetto-schema-authz-role"
-types = ["authz.role"]
-
-[[crates]]
-name = "connetto-schema-authz-team_role"
-types = ["authz.team_role"]
+name = "connetto-schema"
+tables = ["app_installations", "apps", "audit_events", "grantees", "grants", "installation_permissions", "invitations", "memberships", "organization_blocks", "organizations", "ownables", "platform_audit_events", "platform_operators", "resource_parents", "resources", "share_links", "team_members", "team_parents", "teams", "users"]
+types = ["authz.audit_operation", "authz.grantee_kind", "authz.membership_state", "authz.resource_kind", "authz.role", "authz.team_role"]

@@ -1,0 +1,9 @@
+[package]
+name = "connetto-schema-source"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "The connetto-schema cluster bootstrap and slices, read from the checkout the crate is built in"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

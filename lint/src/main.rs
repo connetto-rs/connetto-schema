@@ -2,22 +2,20 @@
 //! any finding the library configuration does not excuse and on any clause
 //! translating below confidence A.
 
-use std::{fs, process::ExitCode};
+use std::process::ExitCode;
 
 use connetto_schema_lint::{
-    constrainer, deployment, findings, read_slices,
+    constrainer, deployment, findings,
     rls2fga::parser::sql_parser::parse_schema,
-    root,
     sqlippy::prelude::ParserDB,
     sqlparser::dialect::PostgreSqlDialect,
     translation::{self, divergences, registry, translator},
 };
+use connetto_schema_source::{bootstrap, slices};
 
 fn main() -> ExitCode {
-    let root = root();
-    let bootstrap = fs::read_to_string(root.join("cluster/roles.sql")).expect("cluster bootstrap");
-    let slices = read_slices(&root.join("sql")).expect("schema slices");
-    let schema = format!("{bootstrap}\n{slices}");
+    let bootstrap = bootstrap().expect("cluster bootstrap");
+    let schema = bootstrap.clone() + &slices().expect("schema slices");
     let cluster =
         ParserDB::parse::<PostgreSqlDialect>(&bootstrap).expect("cluster bootstrap parses");
     let database = ParserDB::parse::<PostgreSqlDialect>(&schema).expect("schema parses");

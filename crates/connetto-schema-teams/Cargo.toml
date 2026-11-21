@@ -1,0 +1,20 @@
+[package]
+name = "connetto-schema-teams"
+version = "0.1.0"
+edition.workspace = true
+
+
+[dependencies]
+serde.workspace = true
+diesel-builders.workspace = true
+diesel.workspace = true
+validation-errors.workspace = true
+rosetta-utc.workspace = true
+rosetta-uuid.workspace = true
+connetto-schema-authz-membership_state.workspace = true
+connetto-schema-authz-team_role.workspace = true
+connetto-schema-authz-grantee_kind.workspace = true
+connetto-schema-grantees.workspace = true
+
+[lints]
+workspace = true

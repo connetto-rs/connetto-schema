@@ -35,10 +35,24 @@ pub const TENANT_TABLES: &[&str] = &[
 
 /// Rules that stay inactive because the schema has nothing they read, with
 /// the reason.
-pub const INACTIVE_RULES: &[(&str, &str)] = &[(
-    "self_asserted_claim_policy",
-    "no claim or column the caller sets about itself grants access",
-)];
+pub const INACTIVE_RULES: &[(&str, &str)] = &[
+    (
+        "self_asserted_claim_policy",
+        "no claim or column the caller sets about itself grants access",
+    ),
+    (
+        "unstreamable_replica_identity",
+        "connetto streams pgoutput in text, so no table is binary-replicated",
+    ),
+    (
+        "binary_send_failure",
+        "connetto streams pgoutput in text, so no table is binary-replicated",
+    ),
+    (
+        "unknown_binary_send",
+        "connetto streams pgoutput in text, so no table is binary-replicated",
+    ),
+];
 
 /// Lint groups raised to [`Level::Warn`] beside the default ones.
 pub const RAISED_GROUPS: [LintGroup; 2] = [LintGroup::Pedantic, LintGroup::Restriction];

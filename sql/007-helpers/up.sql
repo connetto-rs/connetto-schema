@@ -82,7 +82,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 $$;
 
 CREATE FUNCTION authz.granted_resources(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
   SELECT permission.resource_id FROM public.grants permission
   WHERE permission.grantee_id IN (SELECT authz.caller_grantees())
     AND permission.role >= min_role AND (permission.expires_at IS NULL OR permission.expires_at > now())
@@ -94,7 +94,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 $$;
 
 CREATE FUNCTION authz.containers_with(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE reached (id) AS (
     SELECT granted.id FROM authz.granted_resources(min_role) granted (id)
     UNION
@@ -127,6 +127,11 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id, allowed.role FROM public.resources resource
   CROSS JOIN (VALUES ('reader'::authz.role), ('writer'::authz.role)) allowed(role)
   WHERE resource.writers_can_share AND resource.id IN (SELECT authz.resources_with('writer'))
+$$;
+
+CREATE FUNCTION authz.sharable_resources() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT share.resource_id FROM authz.sharable_grants() share
 $$;
 
 CREATE FUNCTION authz.member_organizations() RETURNS SETOF UUID
@@ -249,6 +254,7 @@ ALTER FUNCTION authz.containers_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.reached_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.resources_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.sharable_grants() OWNER TO authz_owner;
+ALTER FUNCTION authz.sharable_resources() OWNER TO authz_owner;
 ALTER FUNCTION authz.member_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.co_member_users() OWNER TO authz_owner;
 ALTER FUNCTION authz.administered_teams() OWNER TO authz_owner;

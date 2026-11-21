@@ -8,6 +8,7 @@ CREATE TABLE resources (
   UNIQUE (organization_id, id),
   CHECK ((kind = 'organization') = (id = organization_id))
 );
+CREATE INDEX ON resources (id) WHERE archived_at IS NOT NULL;
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resources FORCE ROW LEVEL SECURITY;
 

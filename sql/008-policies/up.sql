@@ -145,7 +145,7 @@ CREATE POLICY ownables_delete ON ownables FOR DELETE TO app
 
 GRANT SELECT, INSERT, UPDATE (role, expires_at), DELETE ON grants TO app;
 CREATE POLICY grants_select ON grants FOR SELECT TO app
-  USING (resource_id IN (SELECT share.resource_id FROM authz.sharable_grants() share)
+  USING (resource_id = ANY (ARRAY(SELECT authz.sharable_resources()))
     OR (grantee_id = ANY (ARRAY(SELECT authz.caller_grantees()))
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));

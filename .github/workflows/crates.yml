@@ -47,8 +47,11 @@ jobs:
           git status --porcelain -- ../crates
           git diff -- ../crates
           test -z "$(git status --porcelain -- ../crates)"
-      - name: The crates pass clippy
+      - name: The crate passes clippy with each feature set
         working-directory: crates
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo clippy --workspace --all-targets --no-default-features --features models -- -D warnings
+          cargo clippy --workspace --all-targets --no-default-features -- -D warnings
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/crates-target

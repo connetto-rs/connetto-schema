@@ -1,11 +1,11 @@
-//! Writes the synql crates of the connetto-schema tables into `crates/`,
-//! replacing whatever the directory held.
+//! Writes the `connetto-schema` crate of the connetto-schema tables into
+//! `crates/`, replacing whatever the directory held.
 //!
-//! The `connetto-schema-synql` crate among them records the schema SQL and
-//! the crate holding each table, so a downstream schema generates only its
-//! own tables on top of these crates.
+//! The crate holds every table and enum type, with the models behind its
+//! default `models` feature, and the `DESCRIPTION` of the schema SQL that a
+//! downstream schema generates its own tables on top of.
 //!
-//! The crates are committed as synql writes them. CI reruns this binary and
+//! The crate is committed as synql writes it. CI reruns this binary and
 //! fails when `crates/` differs from the commit.
 
 use connetto_schema_source::{root, schema};
@@ -25,7 +25,7 @@ fn main() {
         .clear_existing()
         .generate_workspace_toml()
         .generate_rustfmt()
-        .sink_crate("connetto-schema")
+        .single_crate()
         .into();
     synql.generate().expect("synql generates the crates");
 }

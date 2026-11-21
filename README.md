@@ -81,6 +81,6 @@ Anything that can receive access is a grantee, and a grant gives one grantee a r
 | Path | Holds |
 |---|---|
 | [`sql/`](sql) | The schema, one slice per directory, applied in name order after [`cluster/roles.sql`](cluster/roles.sql) |
-| [`crates/`](crates) | The [synql](https://github.com/connetto-rs/synql) crates of the tables, written by [`generate/`](generate) and checked in CI against what synql writes |
+| [`crates/`](crates) | The [synql](https://github.com/connetto-rs/synql) crate `connetto-schema`, written by [`generate/`](generate). Its default `models` feature holds the Diesel models of every table and enum, `sqlite` adds their SQLite conversions, and with `default-features = false` it holds only the `DESCRIPTION` a schema generated on top of it reads |
 | [`lint/`](lint) | The SQLippy and rls2fga configuration this schema is written for, which a schema built on top of it extends |
 | [`tests/`](tests) | pgTAP behaviour tests, isolation specs, and scenarios run on PostgreSQL and on the SQLite replica side by side |

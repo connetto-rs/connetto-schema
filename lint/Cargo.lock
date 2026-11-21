@@ -586,7 +586,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#40dd022533c01f9bebdb6a3ee85fd3d1d0ad6ba5"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#e71b4b8e9f3bb2e22cc3dd218ca96e8f8a536a01"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -622,7 +622,7 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#81334b736c38096d34a64204092a98a804e8f491"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#96d4f47d31856ed74abe40c7750ff19e1cbe5854"
 dependencies = [
  "heck",
  "inflection-rs",

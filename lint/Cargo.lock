@@ -490,7 +490,7 @@ checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 [[package]]
 name = "rls2fga"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/rls2fga?branch=main#aa79f3277170fe77c49b8c26aab6ada861e109a5"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#a773d74dc7031923389972978e45131cd6be1481"
 dependencies = [
  "rls2fga-types",
  "serde",
@@ -504,7 +504,7 @@ dependencies = [
 [[package]]
 name = "rls2fga-types"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/rls2fga?branch=main#aa79f3277170fe77c49b8c26aab6ada861e109a5"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#a773d74dc7031923389972978e45131cd6be1481"
 dependencies = [
  "serde",
  "sql-values 0.6.0",
@@ -622,7 +622,7 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#96d4f47d31856ed74abe40c7750ff19e1cbe5854"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#6707fe87b4940726b439c34b679ce8415260412d"
 dependencies = [
  "heck",
  "inflection-rs",

@@ -24,7 +24,11 @@ CREATE POLICY users_insert ON users FOR INSERT TO identity_writer
 GRANT SELECT, DELETE ON organizations TO app;
 GRANT INSERT (id, created_by_id) ON organizations TO app;
 CREATE POLICY organizations_select ON organizations FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.organizations_with('reader'))));
+  USING ((id = ANY (ARRAY(SELECT authz.organizations_reaching('reader'))))
+    OR (id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL)
+    OR (id = ANY (ARRAY(SELECT invitation.organization_id FROM invitations invitation
+      WHERE invitation.accepted_by_id IS NULL AND invitation.expires_at > now()))));
 CREATE POLICY organizations_delete ON organizations FOR DELETE TO app
   USING (id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 CREATE POLICY organizations_insert ON organizations FOR INSERT TO app
@@ -109,7 +113,9 @@ CREATE POLICY team_members_delete ON team_members FOR DELETE TO app
 
 GRANT SELECT, INSERT, UPDATE (archived_at, writers_can_share), DELETE ON resources TO app;
 CREATE POLICY resources_select ON resources FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
+  USING ((id = ANY (ARRAY(SELECT authz.resources_with('reader'))))
+    OR (organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
+      AND (SELECT authz.acting_installation_id()) IS NULL));
 CREATE POLICY resources_insert ON resources FOR INSERT TO app
   WITH CHECK ((kind IN ('folder', 'project')
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('admin')))

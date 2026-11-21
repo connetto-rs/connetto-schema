@@ -4,8 +4,8 @@ CREATE TABLE resources (
   organization_id UUID NOT NULL REFERENCES organizations (id),
   archived_at TIMESTAMPTZ,
   writers_can_share BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (id, kind),
   UNIQUE (organization_id, id),
+  UNIQUE (organization_id, id, kind),
   CHECK ((kind = 'organization') = (id = organization_id))
 );
 CREATE INDEX ON resources (id) WHERE archived_at IS NOT NULL;
@@ -18,10 +18,8 @@ CREATE TABLE resource_parents (
   resource_kind authz.resource_kind NOT NULL CHECK (resource_kind IN ('folder', 'project')),
   parent_id UUID NOT NULL CHECK (parent_id <> id),
   parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
-  FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, parent_id) REFERENCES resources (organization_id, id),
-  FOREIGN KEY (id, resource_kind) REFERENCES resources (id, kind) ON DELETE CASCADE,
-  FOREIGN KEY (parent_id, parent_kind) REFERENCES resources (id, kind)
+  FOREIGN KEY (organization_id, id, resource_kind) REFERENCES resources (organization_id, id, kind) ON DELETE CASCADE,
+  FOREIGN KEY (organization_id, parent_id, parent_kind) REFERENCES resources (organization_id, id, kind)
 );
 CREATE INDEX ON resource_parents (parent_id);
 ALTER TABLE resource_parents ENABLE ROW LEVEL SECURITY;
@@ -35,10 +33,8 @@ CREATE TABLE ownables (
   project_kind authz.resource_kind GENERATED ALWAYS AS ('project'::authz.resource_kind) STORED NOT NULL,
   created_by_id UUID NOT NULL REFERENCES users (id),
   UNIQUE (id, project_id),
-  FOREIGN KEY (id, kind) REFERENCES resources (id, kind) DEFERRABLE INITIALLY DEFERRED,
-  FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id) DEFERRABLE INITIALLY DEFERRED,
-  FOREIGN KEY (project_id, project_kind) REFERENCES resources (id, kind),
-  FOREIGN KEY (organization_id, project_id) REFERENCES resources (organization_id, id)
+  FOREIGN KEY (organization_id, id, kind) REFERENCES resources (organization_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (organization_id, project_id, project_kind) REFERENCES resources (organization_id, id, kind)
 );
 CREATE INDEX ON ownables (project_id);
 CREATE INDEX ON ownables (created_by_id);

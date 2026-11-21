@@ -17,6 +17,7 @@ use sqlparser::ast::DataType;
 /// Row columns whose literal checks and comparisons decide access, each with
 /// its table.
 pub const ATTRIBUTE_COLUMNS: &[(&str, &str)] = &[
+    ("grantees", "kind"),
     ("grants", "role"),
     ("grants", "grantee_kind"),
     ("grants", "organization_id"),

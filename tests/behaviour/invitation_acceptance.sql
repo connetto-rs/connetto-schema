@@ -29,7 +29,7 @@ SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
 SELECT set_config('app.verified_email', 'c@example.com', true);
 SELECT throws_ok($statement$UPDATE invitations SET accepted_by_id = '10000000-0000-7000-8000-000000000002' WHERE id = '70000000-0000-7000-8000-000000000003'$statement$, '42501', NULL, 'client cannot mark an invitation accepted');
 
-SELECT throws_ok($statement$INSERT INTO memberships (organization_id, user_id, state, invitation_id) VALUES ('20000000-0000-7000-8000-000000000003', '10000000-0000-7000-8000-000000000002', 'active', '70000000-0000-7000-8000-000000000003'); SET CONSTRAINTS ALL IMMEDIATE$statement$, '23503', NULL, 'invitation admits only its organization');
+SELECT throws_ok($statement$INSERT INTO memberships (organization_id, user_id, state, invitation_id) VALUES ('20000000-0000-7000-8000-000000000003', '10000000-0000-7000-8000-000000000002', 'active', '70000000-0000-7000-8000-000000000003'); SET CONSTRAINTS ALL IMMEDIATE$statement$, '42501', 'new row violates row-level security policy for table "memberships"', 'invitation admits only its organization');
 
 SET CONSTRAINTS ALL IMMEDIATE;
 RESET ROLE;

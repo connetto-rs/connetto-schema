@@ -1,9 +1,15 @@
 REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_parents, team_members, resources, resource_parents, ownables, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
 
 -- The replica runs authz.caller_grantees() itself, so the caller's own grantee rows reach it.
+-- Every other grantee is readable with the user, team, organization, link or installation it stands for.
 GRANT SELECT ON grantees TO app;
 CREATE POLICY grantees_select ON grantees FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.caller_grantees())));
+  USING (id = ANY (ARRAY(SELECT authz.caller_grantees()))
+    OR (kind = 'user' AND id = ANY (ARRAY(SELECT person.id FROM users person)))
+    OR (kind = 'team' AND id = ANY (ARRAY(SELECT team.id FROM teams team)))
+    OR (kind = 'organization' AND id = ANY (ARRAY(SELECT organization.id FROM organizations organization)))
+    OR (kind = 'link' AND id = ANY (ARRAY(SELECT link.id FROM share_links link)))
+    OR (kind = 'installation' AND id = ANY (ARRAY(SELECT installation.id FROM app_installations installation))));
 
 GRANT SELECT ON users TO app;
 GRANT SELECT, INSERT ON users TO identity_writer;
@@ -27,15 +33,16 @@ CREATE POLICY organizations_insert ON organizations FOR INSERT TO app
 GRANT SELECT, INSERT, UPDATE (state), DELETE ON memberships TO app;
 CREATE POLICY memberships_select ON memberships FOR SELECT TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (user_id = (SELECT authz.caller_id())
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
+-- Members join only by founding or by accepting an invitation.
 CREATE POLICY memberships_insert ON memberships FOR INSERT TO app
-  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))) AND invitation_id IS NULL)
-    OR (organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
+  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
       AND user_id = (SELECT authz.caller_id()) AND state = 'active' AND invitation_id IS NULL
       AND (SELECT authz.acting_installation_id()) IS NULL)
-    OR (invitation_id = ANY (ARRAY(SELECT authz.pending_invitations()))
+    OR ((organization_id, invitation_id) IN (SELECT * FROM authz.pending_invitations())
       AND user_id = (SELECT authz.caller_id()) AND state = 'active'
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer')))));
@@ -62,7 +69,8 @@ CREATE POLICY invitations_delete ON invitations FOR DELETE TO app
 
 GRANT SELECT, INSERT, DELETE ON teams TO app;
 CREATE POLICY teams_select ON teams FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.member_organizations())));
+  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 CREATE POLICY teams_insert ON teams FOR INSERT TO app
   WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
@@ -70,10 +78,12 @@ CREATE POLICY teams_delete ON teams FOR DELETE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 GRANT SELECT, INSERT, UPDATE (parent_id), DELETE ON team_parents TO app;
 CREATE POLICY team_parents_select ON team_parents FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.member_organizations())));
+  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 CREATE POLICY team_parents_insert ON team_parents FOR INSERT TO app
   WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (parent_id = ANY (ARRAY(SELECT authz.administered_teams()))));
+    OR (parent_id = ANY (ARRAY(SELECT authz.administered_teams()))
+      AND organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
 CREATE POLICY team_parents_update ON team_parents FOR UPDATE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
@@ -82,10 +92,12 @@ CREATE POLICY team_parents_delete ON team_parents FOR DELETE TO app
 
 GRANT SELECT, INSERT, UPDATE (team_role), DELETE ON team_members TO app;
 CREATE POLICY team_members_select ON team_members FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.member_organizations())));
+  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 CREATE POLICY team_members_insert ON team_members FOR INSERT TO app
   WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))));
+    OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))
+      AND organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
 CREATE POLICY team_members_update ON team_members FOR UPDATE TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))))
@@ -150,9 +162,10 @@ CREATE POLICY grants_select ON grants FOR SELECT TO app
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY grants_insert ON grants FOR INSERT TO app
-  WITH CHECK ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share)
-    OR (resource_id = organization_id AND grantee_id = (SELECT authz.caller_id()) AND grantee_kind = 'user' AND role = 'admin'
-      AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL));
+  WITH CHECK ((grantee_id, grantee_kind) IN (SELECT grantee.id, grantee.kind FROM grantees grantee)
+    AND ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share)
+      OR (resource_id = organization_id AND grantee_id = (SELECT authz.caller_id()) AND grantee_kind = 'user' AND role = 'admin'
+        AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL)));
 CREATE POLICY grants_update ON grants FOR UPDATE TO app
   USING ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share))
   WITH CHECK ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
@@ -188,7 +201,8 @@ GRANT SELECT, INSERT, UPDATE (expires_at), DELETE ON organization_blocks TO app;
 CREATE POLICY organization_blocks_select ON organization_blocks FOR SELECT TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 CREATE POLICY organization_blocks_insert ON organization_blocks FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+    AND (principal_id, principal_kind) IN (SELECT grantee.id, grantee.kind FROM grantees grantee));
 CREATE POLICY organization_blocks_update ON organization_blocks FOR UPDATE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
@@ -209,7 +223,8 @@ GRANT SELECT, INSERT, DELETE ON app_installations TO app;
 CREATE POLICY app_installations_select ON app_installations FOR SELECT TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 CREATE POLICY app_installations_insert ON app_installations FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+    AND app_id IN (SELECT app.id FROM apps app));
 CREATE POLICY app_installations_delete ON app_installations FOR DELETE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 GRANT SELECT, INSERT, DELETE ON installation_permissions TO app;

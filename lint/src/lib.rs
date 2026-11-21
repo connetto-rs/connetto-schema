@@ -122,25 +122,19 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         "grants_organization_id_resource_id_fkey",
     );
     // Deleting a folder or project needs organization admin, which also administers its parent as the edge policy asks
-    for key in [
-        "resource_parents_organization_id_id_fkey",
-        "resource_parents_id_resource_kind_fkey",
-    ] {
-        constrainer.allow_foreign_key(
-            "cascade_into_row_level_security_table",
-            table("resource_parents"),
-            key,
-        );
-    }
+    constrainer.allow_foreign_key(
+        "cascade_into_row_level_security_table",
+        table("resource_parents"),
+        "resource_parents_organization_id_id_resource_kind_fkey",
+    );
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
     constrainer.allow_table("unaudited_authority_table", table("grantees"));
     // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin
-    for (policy_table, policy) in [
-        ("memberships", "memberships_insert"),
-        ("team_members", "team_members_insert"),
-    ] {
-        constrainer.allow_policy("self_granting_write", table(policy_table), policy);
-    }
+    constrainer.allow_policy(
+        "self_granting_write",
+        table("team_members"),
+        "team_members_insert",
+    );
     // Each insert policy pins the column beside the key to an organization or project the caller already sees
     for (index_table, index) in [
         ("invitations", "invitations_organization_id_id_key"),

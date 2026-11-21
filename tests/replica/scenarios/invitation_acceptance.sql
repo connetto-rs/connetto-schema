@@ -31,7 +31,6 @@ INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) 
 --! client user=10000000-0000-7000-8000-000000000002 email=c@example.com expect=42501
 UPDATE invitations SET accepted_by_id = X'10000000000070008000000000000002' WHERE id = X'70000000000070008000000000000003';
 
--- invitation admits only its organization. The key reaches into invitations a policy hides,
--- so only the server refuses it.
---! client user=10000000-0000-7000-8000-000000000002 email=c@example.com upload=23503
+-- An invitation admits only its organization.
+--! client user=10000000-0000-7000-8000-000000000002 email=c@example.com expect=42501
 INSERT INTO memberships (organization_id, user_id, state, invitation_id) VALUES (X'20000000000070008000000000000003', X'10000000000070008000000000000002', 'active', X'70000000000070008000000000000003');

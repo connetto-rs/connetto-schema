@@ -32,7 +32,7 @@ CREATE TABLE ownables (
   project_id UUID NOT NULL,
   project_kind authz.resource_kind GENERATED ALWAYS AS ('project'::authz.resource_kind) STORED NOT NULL,
   created_by_id UUID NOT NULL REFERENCES users (id),
-  UNIQUE (id, project_id),
+  UNIQUE (id, project_id, organization_id),
   FOREIGN KEY (organization_id, id, kind) REFERENCES resources (organization_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
   FOREIGN KEY (organization_id, project_id, project_kind) REFERENCES resources (organization_id, id, kind)
 );

@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(2);
+SELECT plan(3);
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
@@ -43,6 +43,22 @@ SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
 UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000001' WHERE id = '60000000-0000-7000-8000-000000000001';
 SELECT is((SELECT project_id FROM ownables WHERE id = '60000000-0000-7000-8000-000000000001'), '50000000-0000-7000-8000-000000000001', 'admin can move ownable');
+
+RESET ROLE;
+CREATE TABLE downstream_roots (
+  id UUID PRIMARY KEY,
+  organization_id UUID NOT NULL,
+  project_id UUID NOT NULL,
+  FOREIGN KEY (id, project_id, organization_id) REFERENCES ownables (id, project_id, organization_id) ON UPDATE CASCADE ON DELETE CASCADE
+);
+INSERT INTO downstream_roots (id, organization_id, project_id)
+  VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001');
+SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
+SET ROLE app;
+UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001';
+RESET ROLE;
+SELECT is((SELECT project_id FROM downstream_roots), '50000000-0000-7000-8000-000000000002', 'a downstream root keyed on id, project and organization follows the move');
+SET ROLE app;
 
 SET CONSTRAINTS ALL IMMEDIATE;
 RESET ROLE;

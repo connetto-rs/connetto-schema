@@ -5,9 +5,9 @@
 use std::process::ExitCode;
 
 use connetto_schema_lint::{
-    constrainer, deployment, findings,
+    constrainer, deployment,
     rls2fga::parser::sql_parser::parse_schema,
-    sqlippy::prelude::ParserDB,
+    sqlippy::prelude::{Constrainer, ParserDB},
     sqlparser::dialect::PostgreSqlDialect,
     translation::{self, divergences, registry, translator},
 };
@@ -19,7 +19,7 @@ fn main() -> ExitCode {
     let cluster =
         ParserDB::parse::<PostgreSqlDialect>(&bootstrap).expect("cluster bootstrap parses");
     let database = ParserDB::parse::<PostgreSqlDialect>(&schema).expect("schema parses");
-    let findings = findings(&constrainer(deployment(&cluster)), &database);
+    let findings = constrainer(deployment(&cluster)).diagnostics(&database);
     for finding in &findings {
         println!("{finding}");
     }

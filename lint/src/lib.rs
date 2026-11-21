@@ -3,7 +3,7 @@
 //!
 //! A downstream schema extends [`deployment()`] with its own tenant tables,
 //! builds the constrainer with [`constrainer()`], adds its own allowances,
-//! and reads the remaining diagnostics with [`findings()`]. The
+//! and reads the remaining diagnostics with `diagnostics`. The
 //! [`translation`] module holds the `rls2fga` side.
 
 pub use rls2fga;
@@ -31,27 +31,6 @@ pub const TENANT_TABLES: &[&str] = &[
     "app_installations",
     "installation_permissions",
     "audit_events",
-];
-
-/// Rules that stay inactive because the schema has nothing they read, with
-/// the reason.
-pub const INACTIVE_RULES: &[(&str, &str)] = &[
-    (
-        "self_asserted_claim_policy",
-        "no claim or column the caller sets about itself grants access",
-    ),
-    (
-        "unstreamable_replica_identity",
-        "connetto streams pgoutput in text, so no table is binary-replicated",
-    ),
-    (
-        "binary_send_failure",
-        "connetto streams pgoutput in text, so no table is binary-replicated",
-    ),
-    (
-        "unknown_binary_send",
-        "connetto streams pgoutput in text, so no table is binary-replicated",
-    ),
 ];
 
 /// Lint groups raised to [`Level::Warn`] beside the default ones.
@@ -82,7 +61,9 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
             "record_platform_audit_event",
             [WriteEvent::Insert, WriteEvent::Update, WriteEvent::Delete],
         )
-        .with_irreversible_column("public", "share_links", "revoked_at");
+        .with_irreversible_column("public", "share_links", "revoked_at")
+        .without_self_asserted_sources()
+        .without_binary_replication_tables();
     for table in TENANT_TABLES {
         deployment = deployment.with_tenant_key("public", *table, "organization_id");
     }
@@ -111,23 +92,6 @@ pub fn constrainer(deployment: Deployment) -> DefaultConstrainer<ParserDB> {
     }
     allow(&mut constrainer);
     constrainer
-}
-
-/// The diagnostics `constrainer` reports on `database`, apart from the
-/// rules listed in [`INACTIVE_RULES`].
-#[must_use]
-pub fn findings(
-    constrainer: &DefaultConstrainer<ParserDB>,
-    database: &ParserDB,
-) -> Vec<Error<ParserDB>> {
-    constrainer
-        .diagnostics(database)
-        .into_iter()
-        .filter(|diagnostic| {
-            !matches!(diagnostic, Error::Inactive(inactive)
-                if INACTIVE_RULES.iter().any(|(rule, _)| *rule == inactive.rule().name))
-        })
-        .collect()
 }
 
 /// Excuses the findings the schema keeps on purpose.

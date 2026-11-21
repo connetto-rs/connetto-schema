@@ -6,8 +6,6 @@
 //! and reads the remaining diagnostics with [`findings()`]. The
 //! [`translation`] module holds the `rls2fga` side.
 
-use std::{fs, io, path::Path};
-
 pub use rls2fga;
 pub use sqlippy;
 use sqlippy::prelude::*;
@@ -44,39 +42,6 @@ pub const INACTIVE_RULES: &[(&str, &str)] = &[(
 
 /// Lint groups raised to [`Level::Warn`] beside the default ones.
 pub const RAISED_GROUPS: [LintGroup; 2] = [LintGroup::Pedantic, LintGroup::Restriction];
-
-/// The repository directory holding `cluster/` and `sql/` at the revision
-/// this crate was built from.
-///
-/// # Panics
-///
-/// Panics if the crate manifest has no parent directory, which a checkout
-/// of this repository always has.
-#[must_use]
-pub fn root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("repository root")
-}
-
-/// The `up.sql` files of the slice directories under `sql`, concatenated in
-/// their application order.
-///
-/// # Errors
-///
-/// Returns the error of the first directory or file that cannot be read.
-pub fn read_slices(sql: &Path) -> io::Result<String> {
-    let mut paths = fs::read_dir(sql)?
-        .map(|entry| entry.map(|entry| entry.path().join("up.sql")))
-        .collect::<io::Result<Vec<_>>>()?;
-    paths.sort();
-    let mut slices = String::new();
-    for path in paths {
-        slices.push('\n');
-        slices.push_str(&fs::read_to_string(path)?);
-    }
-    Ok(slices)
-}
 
 /// The deployment connetto-schema is written for, over the parsed cluster
 /// bootstrap in `cluster/roles.sql`.

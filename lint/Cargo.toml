@@ -6,6 +6,7 @@ publish = false
 description = "The SQLippy and rls2fga configuration connetto-schema is written for, and a gate running both over the slices"
 
 [dependencies]
+connetto-schema-source = { path = "../source" }
 rls2fga = { git = "https://github.com/connetto-rs/rls2fga", branch = "main" }
 sqlippy = { git = "https://github.com/connetto-rs/SQLippy", branch = "main" }
 sqlparser = { git = "https://github.com/apache/datafusion-sqlparser-rs", branch = "main", features = ["visitor"] }

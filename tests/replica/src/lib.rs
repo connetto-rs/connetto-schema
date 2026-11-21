@@ -20,10 +20,7 @@ mod replica;
 mod scenario;
 mod server;
 
-use std::{
-    path::{Path, PathBuf},
-    sync::LazyLock,
-};
+use std::sync::LazyLock;
 
 pub use error::HarnessError;
 pub use model::{
@@ -71,34 +68,6 @@ pub fn setting_function(setting: &str) -> String {
 #[must_use]
 pub fn jsonb_functions() -> JsonbFunctions {
     JsonbFunctions::new("pg_jsonb", "pg_jsonb_text", "pg_jsonb")
-}
-
-/// The repository root.
-#[must_use]
-pub fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// The cluster bootstrap followed by every slice, in the order `tests/run.sh`
-/// applies them.
-///
-/// # Panics
-///
-/// Panics if a file cannot be read.
-#[must_use]
-pub fn source() -> String {
-    let root = root();
-    let mut slices: Vec<PathBuf> = std::fs::read_dir(root.join("sql"))
-        .expect("sql directory")
-        .map(|entry| entry.expect("slice entry").path().join("up.sql"))
-        .collect();
-    slices.sort();
-    let mut source = std::fs::read_to_string(root.join("cluster/roles.sql")).expect("roles");
-    for slice in slices {
-        source.push('\n');
-        source.push_str(&std::fs::read_to_string(&slice).expect("slice"));
-    }
-    source
 }
 
 /// The deployment the replica serves, declaring what each of [`SETTINGS`]
@@ -188,7 +157,9 @@ pub struct Translation {
 ///
 /// Panics if pg2sqlite refuses the source.
 pub static TRANSLATION: LazyLock<Translation> = LazyLock::new(|| {
-    let translator = Pg2Sqlite::default().sql(&source()).expect("source parses");
+    let translator = Pg2Sqlite::default()
+        .sql(&connetto_schema_source::schema().expect("schema source"))
+        .expect("source parses");
     let query_options = query_options();
     let replica_options = query_options.clone().with_acting_role(ACTING_ROLE);
     let report = translator

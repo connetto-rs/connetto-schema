@@ -3,6 +3,7 @@
 
 use std::collections::BTreeSet;
 
+use connetto_schema_source::root;
 use diesel::{
     Connection, PgConnection, RunQueryDsl,
     connection::SimpleConnection,
@@ -14,7 +15,6 @@ use crate::{
     ACTING_ROLE, ColumnKind, HarnessError, Principal, TRANSLATION, TableShape, Verdict, ViewRows,
     error::Context,
     model::{Line, cells, quote},
-    root,
 };
 
 diesel::define_sql_function! {

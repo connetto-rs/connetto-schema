@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = ["./connetto-schema-apps", "./connetto-schema-audit_events", "./connetto-schema-grantees", "./connetto-schema-resources", "./connetto-schema-teams", "./connetto-schema-platform_audit_events", "./connetto-schema-authz-audit_operation", "./connetto-schema-authz-grantee_kind", "./connetto-schema-authz-membership_state", "./connetto-schema-authz-resource_kind", "./connetto-schema-authz-role", "./connetto-schema-authz-team_role", "./connetto-schema"]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+connetto-schema-apps = { path = "./connetto-schema-apps" }
+connetto-schema-audit_events = { path = "./connetto-schema-audit_events" }
+connetto-schema-grantees = { path = "./connetto-schema-grantees" }
+connetto-schema-resources = { path = "./connetto-schema-resources" }
+connetto-schema-teams = { path = "./connetto-schema-teams" }
+connetto-schema-platform_audit_events = { path = "./connetto-schema-platform_audit_events" }
+connetto-schema-authz-audit_operation = { path = "./connetto-schema-authz-audit_operation", features = ["sqlite"] }
+connetto-schema-authz-grantee_kind = { path = "./connetto-schema-authz-grantee_kind", features = ["sqlite"] }
+connetto-schema-authz-membership_state = { path = "./connetto-schema-authz-membership_state", features = ["sqlite"] }
+connetto-schema-authz-resource_kind = { path = "./connetto-schema-authz-resource_kind", features = ["sqlite"] }
+connetto-schema-authz-role = { path = "./connetto-schema-authz-role", features = ["sqlite"] }
+connetto-schema-authz-team_role = { path = "./connetto-schema-authz-team_role", features = ["sqlite"] }
+rosetta-utc = { version = "0.2.0", features = ["diesel", "serde", "sqlite"] }
+rosetta-time = { version = "0.1.1", features = ["diesel", "serde", "sqlite"] }
+pgrx_validation = { git = "https://github.com/earth-metabolome-initiative/emi-monorepo", branch = "postgres-crate" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+validation-errors = { version = "0.1.2" }
+sqlitegis = { version = "0.3.1", features = ["diesel-postgres", "serde"] }
+diesel = { version = "2.3.13", git = "https://github.com/diesel-rs/diesel", branch = "main", features = ["serde_json"] }
+diesel-builders = { version = "0.1.2" }
+rosetta-uuid = { version = "0.2.0", features = ["diesel", "serde", "sqlite"] }
+
+[patch.crates-io]
+diesel = { git = "https://github.com/diesel-rs/diesel", branch = "main" }
+
+[workspace.lints.rust]
+missing_docs = "forbid"
+unused_macro_rules = "forbid"
+unused_doc_comments = "forbid"
+unconditional_recursion = "forbid"
+unreachable_patterns = "forbid"
+unused_import_braces = "forbid"
+unused_must_use = "forbid"
+deprecated = "deny"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "forbid"
+bare_urls = "forbid"
+invalid_codeblock_attributes = "forbid"
+invalid_html_tags = "forbid"
+missing_crate_level_docs = "forbid"
+unescaped_backticks = "forbid"
+redundant_explicit_links = "forbid"
+invalid_rust_codeblocks = "forbid"

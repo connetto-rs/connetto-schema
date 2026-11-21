@@ -6,6 +6,7 @@ publish = false
 description = "Runs the connetto-schema core on the SQLite replica pg2sqlite translates it into, beside PostgreSQL"
 
 [dependencies]
+connetto-schema-source = { path = "../../source" }
 diesel = { version = "2.3", features = ["sqlite", "postgres"] }
 libsqlite3-sys = { version = "0.40", features = ["bundled"] }
 pg2sqlite = { git = "https://github.com/connetto-rs/pg2sqlite", branch = "main", default-features = false, features = ["std", "diesel"] }

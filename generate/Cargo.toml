@@ -1,0 +1,18 @@
+[package]
+name = "connetto-schema-generate"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Writes the synql crates of the connetto-schema tables into crates/"
+
+[dependencies]
+connetto-schema-source = { path = "../source" }
+sql-traits = { git = "https://github.com/connetto-rs/sql-traits", branch = "main" }
+sqlparser = { git = "https://github.com/apache/datafusion-sqlparser-rs", branch = "main" }
+synql = { git = "https://github.com/connetto-rs/synql", branch = "main" }
+
+[patch.crates-io]
+sqlparser = { git = "https://github.com/apache/datafusion-sqlparser-rs", branch = "main" }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

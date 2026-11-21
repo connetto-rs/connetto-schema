@@ -1,0 +1,16 @@
+[package]
+name = "connetto-schema"
+version = "0.1.0"
+edition.workspace = true
+
+
+[dependencies]
+connetto-schema-apps.workspace = true
+connetto-schema-audit_events.workspace = true
+connetto-schema-grantees.workspace = true
+connetto-schema-resources.workspace = true
+connetto-schema-teams.workspace = true
+connetto-schema-platform_audit_events.workspace = true
+
+[lints]
+workspace = true

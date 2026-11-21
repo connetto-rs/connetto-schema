@@ -1,0 +1,19 @@
+[package]
+name = "connetto-schema-apps"
+version = "0.1.0"
+edition.workspace = true
+
+
+[dependencies]
+serde.workspace = true
+diesel-builders.workspace = true
+diesel.workspace = true
+validation-errors.workspace = true
+connetto-schema-authz-grantee_kind.workspace = true
+rosetta-uuid.workspace = true
+connetto-schema-authz-resource_kind.workspace = true
+connetto-schema-authz-role.workspace = true
+connetto-schema-grantees.workspace = true
+
+[lints]
+workspace = true

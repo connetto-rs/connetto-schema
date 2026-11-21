@@ -5,7 +5,7 @@
 [![Generated crates](https://github.com/connetto-rs/connetto-schema/actions/workflows/crates.yml/badge.svg)](https://github.com/connetto-rs/connetto-schema/actions/workflows/crates.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A PostgreSQL core schema for multi-tenant applications whose access rules live in row-level security. Every policy translates one to one into an OpenFGA model through [rls2fga](https://github.com/connetto-rs/rls2fga), [SQLippy](https://github.com/connetto-rs/SQLippy) reports nothing on it, and [pg2sqlite](https://github.com/connetto-rs/pg2sqlite) turns it into the SQLite replica a client holds offline. Application schemas are applied on top of it.
+A PostgreSQL core schema for multi-tenant applications whose access rules live in row-level security. Its policies are written to translate one to one into an OpenFGA model through [rls2fga](https://github.com/connetto-rs/rls2fga), and [pg2sqlite](https://github.com/connetto-rs/pg2sqlite) turns the schema into the SQLite replica a client holds offline. Application schemas are applied on top of it.
 
 ```mermaid
 erDiagram

@@ -20,6 +20,8 @@ fn main() {
     let synql: SynQL<ParserDB> = SynQL::new(&database, &crates)
         .name("connetto-schema")
         .sql(&schema)
+        .license("MIT")
+        .repository("https://github.com/connetto-rs/connetto-schema")
         .clear_existing()
         .generate_workspace_toml()
         .generate_rustfmt()

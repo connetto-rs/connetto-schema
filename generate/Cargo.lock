@@ -777,7 +777,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#01e9f5463ae098abbb9c500e80d8c5ac4f0ebd96"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#5585d58c9136e420060049470b368595b6552706"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -804,7 +804,7 @@ dependencies = [
 [[package]]
 name = "sql_relations"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/synql?branch=main#089560ef79d45c37107da375cfa0da646de9f7ec"
+source = "git+https://github.com/connetto-rs/synql?branch=main#6aa17618ea462b9c739a3d409ed42f1c4bcc2fb5"
 dependencies = [
  "sql-traits",
  "sqlparser",
@@ -922,7 +922,7 @@ dependencies = [
 [[package]]
 name = "synql"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/synql?branch=main#089560ef79d45c37107da375cfa0da646de9f7ec"
+source = "git+https://github.com/connetto-rs/synql?branch=main#6aa17618ea462b9c739a3d409ed42f1c4bcc2fb5"
 dependencies = [
  "enumflags2",
  "geometric-traits",

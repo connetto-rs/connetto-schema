@@ -133,7 +133,8 @@ pub fn query_options() -> Pg2SqliteOptions {
     options
 }
 
-/// A translation of [`source`] and what the harness reads off it.
+/// A translation of [`connetto_schema_source::schema`] and what the harness
+/// reads off it.
 pub struct Translation {
     /// The parsed source, which also reverse translates.
     pub translator: Pg2Sqlite,

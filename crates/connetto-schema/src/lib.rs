@@ -1778,12 +1778,6 @@ pub mod resources_model {
     ::diesel::allow_tables_to_appear_in_same_query!(
         resources, ::connetto_schema::organizations
     );
-    ::diesel::allow_tables_to_appear_in_same_query!(
-        resources, ::connetto_schema::ownables
-    );
-    ::diesel::allow_tables_to_appear_in_same_query!(
-        resources, ::connetto_schema::resource_parents
-    );
 }
 #[cfg(feature = "models")]
 pub use resources_model::*;

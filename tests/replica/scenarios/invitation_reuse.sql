@@ -10,8 +10,8 @@ INSERT INTO organizations (id, created_by_id) VALUES (X'200000000000700080000000
 INSERT INTO resources (id, kind, organization_id) VALUES (X'20000000000070008000000000000001', 'organization', X'20000000000070008000000000000001');
 INSERT INTO memberships (organization_id, user_id, state) VALUES (X'20000000000070008000000000000001', X'10000000000070008000000000000001', 'active');
 INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role) VALUES (X'20000000000070008000000000000001', X'20000000000070008000000000000001', X'10000000000070008000000000000001', 'user', 'admin');
-INSERT INTO resources (id, kind, organization_id) SELECT X'50000000000070008000000000000002', 'project', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'20000000000070008000000000000001';
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) SELECT ancestor.organization_id, X'50000000000070008000000000000002', 'project', X'20000000000070008000000000000001', ancestor.kind FROM resources ancestor WHERE ancestor.id = X'20000000000070008000000000000001';
+INSERT INTO resources (id, kind, organization_id) SELECT X'50000000000070008000000000000002', 'project', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'20000000000070008000000000000001';
 INSERT INTO organizations (id, created_by_id) VALUES (X'20000000000070008000000000000003', X'10000000000070008000000000000001');
 INSERT INTO resources (id, kind, organization_id) VALUES (X'20000000000070008000000000000003', 'organization', X'20000000000070008000000000000003');
 INSERT INTO memberships (organization_id, user_id, state) VALUES (X'20000000000070008000000000000003', X'10000000000070008000000000000001', 'active');

@@ -32,9 +32,12 @@ the replica leaves the check of foreign key resources_organization_id_fkey on re
 left FOREIGN KEY (organization_id, id, resource_kind) REFERENCES resources on resource_parents to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
 the replica leaves the check of foreign key resource_parents_organization_id_id_resource_kind_fkey on resource_parents to the server, since resources_select, resources_blocked may hide rows of resources from the acting role
 the replica leaves the check of foreign key resource_parents_organization_id_parent_id_parent_kind_fkey on resource_parents to the server, since resources_select, resources_blocked may hide rows of resources from the acting role
+left FOREIGN KEY (organization_id, id, kind) REFERENCES resources on ownables to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
 the replica leaves the check of foreign key ownables_created_by_id_fkey on ownables to the server, since users_select may hide rows of users from the acting role
 the replica leaves the check of foreign key ownables_organization_id_id_kind_fkey on ownables to the server, since resources_select, resources_blocked may hide rows of resources from the acting role
 the replica leaves the check of foreign key ownables_organization_id_project_id_project_kind_fkey on ownables to the server, since resources_select, resources_blocked may hide rows of resources from the acting role
+the replica leaves the check of foreign key resources_organization_id_ownable_id_kind_fkey on resources to the server, since ownables_select, ownables_blocked may hide rows of ownables from the acting role
+the replica leaves the check of foreign key resources_organization_id_edge_id_kind_fkey on resources to the server, since resource_parents_select, resource_parents_blocked may hide rows of resource_parents from the acting role
 downgraded WITH TIME ZONE at grants.expires_at from TIMESTAMPTZ to TEXT: SQLite has no zone-aware temporal type, so the value is stored as text and compares as text. The translation writes a timestamptz as UTC text with a +00:00 offset, so those compare as instants, but a bound parameter or a time with time zone is stored as given, and two spellings of one moment (+02:00 vs +00:00) compare unequal.
 left FOREIGN KEY (organization_id, resource_id) REFERENCES resources on grants to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
 left FOREIGN KEY (grantee_id, grantee_kind) REFERENCES grantees on grants to the server, since its ON DELETE CASCADE writes rows the server writes itself when it applies the upload
@@ -183,7 +186,6 @@ left TRIGGER share_links_grantee_removed on share_links to the server, since del
 left TRIGGER app_installations_grantee on app_installations to the server, since insert_grantee() runs INSERT on grantees, which the server runs again when it applies the upload
 left TRIGGER app_installations_grantee_removed on app_installations to the server, since delete_grantee() runs DELETE on grantees, which the server runs again when it applies the upload
 dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
-left TRIGGER ownables_resource_removed on ownables to the server, since delete_ownable_resource() runs DELETE on resources, which the server runs again when it applies the upload
 dropped CREATE FUNCTION: SQLite has no statement that defines a function. A trigger function's body is inlined into the triggers that call it, and any other function must be registered by the host through SQLite's C API.
 dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
 dropped FOR UPDATE / FOR SHARE: SQLite locks the whole database for a write transaction, which covers every row the clause would lock, so the clause is dropped. SKIP LOCKED and NOWAIT never meet a row another transaction holds, so they change no result.
@@ -231,9 +233,6 @@ left TRIGGER platform_operators_audit on platform_operators to the server, since
 left TRIGGER platform_operators_update_audit on platform_operators to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
 left TRIGGER organizations_audit on organizations to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
 left TRIGGER organizations_update_audit on organizations to the server, since record_platform_audit_event() runs INSERT on platform_audit_events, which the server runs again when it applies the upload
-dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
-dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
-dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.

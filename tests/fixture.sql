@@ -17,10 +17,10 @@ CREATE FUNCTION pg_temp.create_child_team(team UUID, parent UUID) RETURNS VOID L
     SELECT ancestor.organization_id, team, parent FROM public.teams ancestor WHERE ancestor.id = parent;
 $$;
 CREATE FUNCTION pg_temp.create_child_resource(child UUID, child_kind authz.resource_kind, parent UUID) RETURNS VOID LANGUAGE sql AS $$
-  INSERT INTO public.resources (id, kind, organization_id)
-    SELECT child, child_kind, ancestor.organization_id FROM public.resources ancestor WHERE ancestor.id = parent;
   INSERT INTO public.resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
     SELECT ancestor.organization_id, child, child_kind, parent, ancestor.kind FROM public.resources ancestor WHERE ancestor.id = parent;
+  INSERT INTO public.resources (id, kind, organization_id)
+    SELECT child, child_kind, ancestor.organization_id FROM public.resources ancestor WHERE ancestor.id = parent;
 $$;
 CREATE FUNCTION pg_temp.create_ownable(ownable UUID, organization UUID, project UUID, creator UUID) RETURNS VOID LANGUAGE sql AS $$
   INSERT INTO public.ownables (id, organization_id, project_id, created_by_id) VALUES (ownable, organization, project, creator);

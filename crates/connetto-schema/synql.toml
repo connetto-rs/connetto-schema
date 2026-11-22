@@ -138,7 +138,8 @@ CREATE TABLE resource_parents (
   resource_kind authz.resource_kind NOT NULL CHECK (resource_kind IN ('folder', 'project')),
   parent_id UUID NOT NULL CHECK (parent_id <> id),
   parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
-  FOREIGN KEY (organization_id, id, resource_kind) REFERENCES resources (organization_id, id, kind) ON DELETE CASCADE,
+  UNIQUE (organization_id, id, resource_kind),
+  FOREIGN KEY (organization_id, id, resource_kind) REFERENCES resources (organization_id, id, kind) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   FOREIGN KEY (organization_id, parent_id, parent_kind) REFERENCES resources (organization_id, id, kind)
 );
 CREATE INDEX ON resource_parents (parent_id);
@@ -153,13 +154,22 @@ CREATE TABLE ownables (
   project_kind authz.resource_kind GENERATED ALWAYS AS ('project'::authz.resource_kind) STORED NOT NULL,
   created_by_id UUID NOT NULL REFERENCES users (id),
   UNIQUE (id, project_id),
-  FOREIGN KEY (organization_id, id, kind) REFERENCES resources (organization_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
+  UNIQUE (organization_id, id, kind),
+  FOREIGN KEY (organization_id, id, kind) REFERENCES resources (organization_id, id, kind) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   FOREIGN KEY (organization_id, project_id, project_kind) REFERENCES resources (organization_id, id, kind)
 );
 CREATE INDEX ON ownables (project_id);
 CREATE INDEX ON ownables (created_by_id);
 ALTER TABLE ownables ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ownables FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE resources
+  ADD COLUMN ownable_id UUID GENERATED ALWAYS AS (CASE WHEN kind = 'ownable' THEN id END) STORED,
+  ADD COLUMN edge_id UUID GENERATED ALWAYS AS (CASE WHEN kind IN ('folder', 'project') THEN id END) STORED,
+  ADD FOREIGN KEY (organization_id, ownable_id, kind) REFERENCES ownables (organization_id, id, kind) ON DELETE RESTRICT NOT DEFERRABLE,
+  ADD FOREIGN KEY (organization_id, edge_id, kind) REFERENCES resource_parents (organization_id, id, resource_kind) ON DELETE RESTRICT NOT DEFERRABLE;
+CREATE INDEX ON resources (ownable_id);
+CREATE INDEX ON resources (edge_id);
 
 CREATE TABLE grants (
   resource_id UUID NOT NULL,
@@ -684,7 +694,7 @@ CREATE POLICY resources_delete ON resources FOR DELETE TO app
     OR (kind IN ('folder', 'project') AND id = ANY (ARRAY(SELECT authz.resources_with('admin')))
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 
-GRANT SELECT, INSERT, UPDATE (parent_id, parent_kind), DELETE ON resource_parents TO app;
+GRANT SELECT, INSERT, UPDATE (parent_id, parent_kind) ON resource_parents TO app;
 CREATE POLICY resource_parents_select ON resource_parents FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
 CREATE POLICY resource_parents_insert ON resource_parents FOR INSERT TO app
@@ -692,10 +702,8 @@ CREATE POLICY resource_parents_insert ON resource_parents FOR INSERT TO app
 CREATE POLICY resource_parents_update ON resource_parents FOR UPDATE TO app
   USING (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
   WITH CHECK (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
-CREATE POLICY resource_parents_delete ON resource_parents FOR DELETE TO app
-  USING (ARRAY[organization_id, parent_id] <@ ARRAY(SELECT authz.resources_with('admin')));
 
-GRANT SELECT, INSERT, UPDATE (project_id), DELETE ON ownables TO app;
+GRANT SELECT, INSERT, UPDATE (project_id) ON ownables TO app;
 CREATE POLICY ownables_select ON ownables FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
 CREATE POLICY ownables_insert ON ownables FOR INSERT TO app
@@ -706,8 +714,6 @@ CREATE POLICY ownables_insert ON ownables FOR INSERT TO app
 CREATE POLICY ownables_update ON ownables FOR UPDATE TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
   WITH CHECK (project_id = ANY (ARRAY(SELECT authz.resources_with('writer'))));
-CREATE POLICY ownables_delete ON ownables FOR DELETE TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
 
 GRANT SELECT, INSERT, UPDATE (role, expires_at), DELETE ON grants TO app;
 CREATE POLICY grants_select ON grants FOR SELECT TO app
@@ -813,8 +819,6 @@ CREATE POLICY ownables_archived_insert ON ownables AS RESTRICTIVE FOR INSERT TO 
 CREATE POLICY ownables_archived_update ON ownables AS RESTRICTIVE FOR UPDATE TO app
   USING (NOT authz.is_archived(id))
   WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(project_id));
-CREATE POLICY ownables_archived_delete ON ownables AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT authz.is_archived(id));
 CREATE POLICY grants_archived_insert ON grants AS RESTRICTIVE FOR INSERT TO app
   WITH CHECK (NOT authz.is_archived(resource_id));
 CREATE POLICY grants_archived_update ON grants AS RESTRICTIVE FOR UPDATE TO app
@@ -827,8 +831,6 @@ CREATE POLICY resource_parents_archived_insert ON resource_parents AS RESTRICTIV
 CREATE POLICY resource_parents_archived_update ON resource_parents AS RESTRICTIVE FOR UPDATE TO app
   USING (NOT authz.is_archived(id))
   WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(parent_id));
-CREATE POLICY resource_parents_archived_delete ON resource_parents AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT authz.is_archived(id));
 
 CREATE POLICY resources_blocked ON resources AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
@@ -1002,31 +1004,6 @@ CREATE TRIGGER share_links_stamp_revoked_at BEFORE INSERT OR UPDATE OF revoked_a
   FOR EACH ROW EXECUTE FUNCTION authz.stamp_revoked_at();
 REVOKE EXECUTE ON FUNCTION authz.stamp_archived_at(), authz.stamp_revoked_at() FROM PUBLIC, app;
 
-CREATE FUNCTION authz_write.delete_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  DELETE FROM public.resources WHERE id = OLD.id AND kind = 'ownable';
-  RETURN NULL;
-END
-$$;
-
-CREATE TRIGGER ownables_resource_removed AFTER DELETE ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.delete_ownable_resource();
-
-CREATE FUNCTION authz_write.check_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.ownables ownable WHERE ownable.id = NEW.id) THEN
-    RAISE EXCEPTION 'resource % requires its ownable', NEW.id USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NULL;
-END
-$$;
-
-CREATE CONSTRAINT TRIGGER resources_ownable_required AFTER INSERT ON resources
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind = 'ownable')
-  EXECUTE FUNCTION authz_write.check_ownable_resource();
-
 CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -1111,26 +1088,6 @@ CREATE TRIGGER team_parents_shape BEFORE INSERT OR UPDATE ON team_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_parent();
 CREATE TRIGGER resource_parents_shape BEFORE INSERT OR UPDATE ON resource_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_parent();
-
-CREATE FUNCTION authz_write.check_resource_edge() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-DECLARE
-  orphan UUID;
-BEGIN
-  SELECT resource.id INTO orphan FROM public.resources resource
-  WHERE resource.id IN (OLD.id, NEW.id) AND resource.kind IN ('folder', 'project')
-    AND NOT EXISTS (SELECT 1 FROM public.resource_parents edge WHERE edge.id = resource.id);
-  IF orphan IS NOT NULL THEN
-    RAISE EXCEPTION 'resource % requires a parent edge', orphan USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NULL;
-END
-$$;
-
-CREATE CONSTRAINT TRIGGER resources_parent_required AFTER INSERT OR UPDATE ON resources
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
-CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE OR UPDATE ON resource_parents
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
 
 CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -1371,12 +1328,9 @@ ALTER FUNCTION authz_write.insert_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.check_ownable_resource() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.delete_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.check_resource_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.has_active_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;

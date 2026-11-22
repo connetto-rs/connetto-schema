@@ -13,15 +13,15 @@ INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role
 INSERT INTO teams (id, organization_id) VALUES (X'30000000000070008000000000000001', X'20000000000070008000000000000001');
 INSERT INTO teams (id, organization_id) SELECT X'30000000000070008000000000000002', ancestor.organization_id FROM teams ancestor WHERE ancestor.id = X'30000000000070008000000000000001';
 INSERT INTO team_parents (organization_id, id, parent_id) SELECT ancestor.organization_id, X'30000000000070008000000000000002', X'30000000000070008000000000000001' FROM teams ancestor WHERE ancestor.id = X'30000000000070008000000000000001';
-INSERT INTO resources (id, kind, organization_id) VALUES (X'40000000000070008000000000000001', 'folder', X'20000000000070008000000000000001');
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
   VALUES (X'20000000000070008000000000000001', X'40000000000070008000000000000001', 'folder', X'20000000000070008000000000000001', 'organization');
-INSERT INTO resources (id, kind, organization_id) SELECT X'40000000000070008000000000000002', 'folder', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000001';
+INSERT INTO resources (id, kind, organization_id) VALUES (X'40000000000070008000000000000001', 'folder', X'20000000000070008000000000000001');
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) SELECT ancestor.organization_id, X'40000000000070008000000000000002', 'folder', X'40000000000070008000000000000001', ancestor.kind FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000001';
-INSERT INTO resources (id, kind, organization_id) SELECT X'50000000000070008000000000000001', 'project', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000002';
+INSERT INTO resources (id, kind, organization_id) SELECT X'40000000000070008000000000000002', 'folder', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000001';
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) SELECT ancestor.organization_id, X'50000000000070008000000000000001', 'project', X'40000000000070008000000000000002', ancestor.kind FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000002';
-INSERT INTO resources (id, kind, organization_id) SELECT X'50000000000070008000000000000002', 'project', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'20000000000070008000000000000001';
+INSERT INTO resources (id, kind, organization_id) SELECT X'50000000000070008000000000000001', 'project', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000002';
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) SELECT ancestor.organization_id, X'50000000000070008000000000000002', 'project', X'20000000000070008000000000000001', ancestor.kind FROM resources ancestor WHERE ancestor.id = X'20000000000070008000000000000001';
+INSERT INTO resources (id, kind, organization_id) SELECT X'50000000000070008000000000000002', 'project', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'20000000000070008000000000000001';
 INSERT INTO ownables (id, organization_id, project_id, created_by_id) VALUES (X'60000000000070008000000000000001', X'20000000000070008000000000000001', X'50000000000070008000000000000001', X'10000000000070008000000000000001');
 INSERT INTO resources (id, kind, organization_id) VALUES (X'60000000000070008000000000000001', 'ownable', X'20000000000070008000000000000001');
 INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) VALUES (X'71000000000070008000000000000002', X'20000000000070008000000000000001', 'member2@example.com', '2126-01-01 00:00:00.000000+00:00', X'10000000000070008000000000000001');

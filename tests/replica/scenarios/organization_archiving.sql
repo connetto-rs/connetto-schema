@@ -23,7 +23,8 @@ INSERT INTO ownables (id, organization_id, project_id, created_by_id) VALUES (X'
 INSERT INTO resources (id, kind, organization_id) VALUES (X'60000000000070008000000000000001', 'ownable', X'20000000000070008000000000000001');
 
 -- The organization archive reaches the nested ownable.
---! client user=10000000-0000-7000-8000-000000000001 expect=ok
+-- Only the server carries the archive into the copies of the rows below it.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=resources,resource_parents,ownables,grants
 UPDATE resources SET archived_at = '2126-01-01 00:00:00.000000+00:00' WHERE id = X'20000000000070008000000000000001';
 
 -- The organization archive blocks ownable writes.

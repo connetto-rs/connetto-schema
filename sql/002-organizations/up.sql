@@ -1,10 +1,10 @@
 CREATE TABLE organizations (
   id UUID PRIMARY KEY,
-  kind authz.grantee_kind GENERATED ALWAYS AS ('organization'::authz.grantee_kind) STORED NOT NULL,
+  kind authz.grantee_kind NOT NULL DEFAULT 'organization' CHECK (kind = 'organization'),
   created_by_id UUID NOT NULL REFERENCES users (id),
   -- Set by the first admin grant on the organization. Its creator takes the founding membership and grant only while it is NULL.
   founded_at TIMESTAMPTZ,
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) DEFERRABLE INITIALLY DEFERRED
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
 );
 CREATE INDEX ON organizations (created_by_id);
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
@@ -39,10 +39,10 @@ ALTER TABLE memberships FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE teams (
   id UUID PRIMARY KEY,
-  kind authz.grantee_kind GENERATED ALWAYS AS ('team'::authz.grantee_kind) STORED NOT NULL,
+  kind authz.grantee_kind NOT NULL DEFAULT 'team' CHECK (kind = 'team'),
   organization_id UUID NOT NULL REFERENCES organizations (id),
   UNIQUE (organization_id, id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) DEFERRABLE INITIALLY DEFERRED
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
 );
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams FORCE ROW LEVEL SECURITY;

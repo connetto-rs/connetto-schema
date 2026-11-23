@@ -44,7 +44,7 @@ DO $body$
   UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001';
 SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
-SELECT is((SELECT authz.is_archived('d0000000-0000-7000-8000-000000000021')), true, 'twenty resource levels exclude organization');
+SELECT is((SELECT archived FROM resources WHERE id = 'd0000000-0000-7000-8000-000000000021'), true, 'twenty resource levels exclude organization');
 
 SET CONSTRAINTS ALL IMMEDIATE;
 RESET ROLE;

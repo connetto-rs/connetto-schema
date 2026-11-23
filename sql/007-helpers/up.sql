@@ -34,10 +34,30 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS
   SELECT 20
 $$;
 
-CREATE FUNCTION authz.installation_organizations() RETURNS SETOF UUID
+CREATE FUNCTION authz.blocking_organizations() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT permission.organization_id FROM public.installation_permissions permission
+  SELECT block.organization_id FROM public.organization_blocks block
+  WHERE block.principal_id IN (authz.caller_id(), authz.acting_installation_id())
+    AND (block.expires_at IS NULL OR block.expires_at > now())
+$$;
+
+CREATE FUNCTION authz.capped_kinds(min_role authz.role)
+RETURNS TABLE (organization_id UUID, kind authz.resource_kind)
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT permission.organization_id, permission.kind FROM public.installation_permissions permission
   WHERE permission.installation_id = authz.acting_installation_id()
+    AND permission.max_role >= min_role
+    AND NOT (permission.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+$$;
+
+CREATE FUNCTION authz.member_organizations() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT membership.organization_id FROM public.memberships membership
+  WHERE membership.user_id = authz.caller_id() AND membership.state = 'active'
+    AND (authz.acting_installation_id() IS NULL
+      OR (membership.organization_id, 'organization'::authz.resource_kind)
+        IN (SELECT * FROM authz.capped_kinds('reader')))
+    AND NOT (membership.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.caller_grantees() RETURNS SETOF UUID
@@ -51,50 +71,41 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
     SELECT grantee.id FROM public.grantees grantee
     WHERE grantee.kind = 'signed_in' AND authz.caller_id() IS NOT NULL
     UNION
-    SELECT membership.organization_id FROM public.memberships membership
-    WHERE membership.user_id = authz.caller_id() AND membership.state = 'active'
-      AND (authz.acting_installation_id() IS NULL
-        OR membership.organization_id IN (SELECT authz.installation_organizations()))
+    SELECT organization FROM authz.member_organizations() organization
     UNION
     SELECT member.team_id FROM public.team_members member
-    JOIN public.memberships membership ON membership.organization_id = member.organization_id AND membership.user_id = member.user_id
-    WHERE member.user_id = authz.caller_id() AND membership.state = 'active'
-      AND (authz.acting_installation_id() IS NULL
-        OR member.organization_id IN (SELECT authz.installation_organizations()))
+    WHERE member.user_id = authz.caller_id() AND member.organization_id IN (SELECT authz.member_organizations())
     UNION
     SELECT link.id FROM public.share_links link
     WHERE link.id = ANY (authz.link_ids())
       AND link.revoked_at IS NULL AND (link.expires_at IS NULL OR link.expires_at > now())
       AND (authz.acting_installation_id() IS NULL
-        OR link.organization_id IN (SELECT authz.installation_organizations()))
+        OR (link.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
+      AND NOT (link.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
     UNION
     SELECT parent.parent_id FROM public.team_parents parent JOIN reached ON parent.id = reached.id
   )
   SELECT id FROM reached
 $$;
 
-CREATE FUNCTION authz.capped_kinds(min_role authz.role)
-RETURNS TABLE (organization_id UUID, kind authz.resource_kind)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT permission.organization_id, permission.kind FROM public.installation_permissions permission
-  WHERE permission.installation_id = authz.acting_installation_id()
-    AND permission.max_role >= min_role
-$$;
-
 CREATE FUNCTION authz.granted_resources(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE STRICT SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
   SELECT permission.resource_id FROM public.grants permission
   WHERE permission.grantee_id IN (SELECT authz.caller_grantees())
     AND permission.role >= min_role AND (permission.expires_at IS NULL OR permission.expires_at > now())
+    AND NOT (permission.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+    AND (authz.acting_installation_id() IS NULL
+      OR (permission.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
     AND NOT EXISTS (
       SELECT 1 FROM public.memberships membership
       WHERE membership.organization_id = permission.organization_id
-        AND membership.user_id = permission.grantee_id AND membership.state = 'deactivated'
+        AND membership.user_id = permission.grantee_id
+        AND membership.state = 'deactivated'
     )
 $$;
 
 CREATE FUNCTION authz.containers_with(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE STRICT SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE reached (id) AS (
     SELECT granted.id FROM authz.granted_resources(min_role) granted (id)
     UNION
@@ -104,18 +115,19 @@ LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_te
 $$;
 
 CREATE FUNCTION authz.reached_with(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT reached.id FROM authz.containers_with(min_role) reached (id)
   UNION
   SELECT ownable.id FROM public.ownables ownable WHERE ownable.project_id IN (SELECT authz.containers_with(min_role))
 $$;
 
 CREATE FUNCTION authz.resources_with(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id FROM public.resources resource
   WHERE resource.id IN (SELECT authz.reached_with(min_role))
     AND (authz.acting_installation_id() IS NULL
       OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds(min_role)))
+    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.sharable_grants() RETURNS TABLE (resource_id UUID, role authz.role)
@@ -127,6 +139,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id, allowed.role FROM public.resources resource
   CROSS JOIN (VALUES ('reader'::authz.role), ('writer'::authz.role)) allowed(role)
   WHERE resource.writers_can_share AND resource.id IN (SELECT authz.resources_with('writer'))
+    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.sharable_resources() RETURNS SETOF UUID
@@ -134,19 +147,11 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT share.resource_id FROM authz.sharable_grants() share
 $$;
 
-CREATE FUNCTION authz.member_organizations() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT membership.organization_id FROM public.memberships membership
-  WHERE membership.user_id = authz.caller_id() AND membership.state = 'active'
-    AND (authz.acting_installation_id() IS NULL
-      OR (membership.organization_id, 'organization'::authz.resource_kind)
-        IN (SELECT * FROM authz.capped_kinds('reader')))
-$$;
-
 CREATE FUNCTION authz.co_member_users() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT membership.user_id FROM public.memberships membership
   WHERE membership.organization_id IN (SELECT authz.member_organizations()) AND membership.state = 'active'
+    AND NOT (membership.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.administered_teams() RETURNS SETOF UUID
@@ -158,6 +163,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
     AND (authz.acting_installation_id() IS NULL
       OR (membership.organization_id, 'organization'::authz.resource_kind)
         IN (SELECT * FROM authz.capped_kinds('admin')))
+    AND NOT (member.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.team_admin_organizations() RETURNS SETOF UUID
@@ -166,67 +172,44 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 $$;
 
 CREATE FUNCTION authz.organizations_reaching(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.organization_id FROM public.resources resource WHERE resource.id IN (SELECT authz.resources_with(min_role))
+    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.organization_id FROM public.resources resource
   WHERE resource.kind = 'organization' AND resource.id IN (SELECT authz.granted_resources(min_role))
     AND (authz.acting_installation_id() IS NULL
       OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds(min_role)))
+    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.founded_organizations() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT organization.id FROM public.organizations organization
   WHERE organization.created_by_id = authz.caller_id() AND organization.founded_at IS NULL
+    AND authz.acting_installation_id() IS NULL
+    AND NOT (organization.id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.pending_invitations() RETURNS TABLE (organization_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT invitation.organization_id, invitation.id FROM public.invitations invitation
   WHERE invitation.email = authz.verified_email() AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
-$$;
-
-CREATE FUNCTION authz.is_archived(resource UUID) RETURNS BOOLEAN
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  WITH RECURSIVE ancestors (id) AS (
-    SELECT resource
-    UNION
-    SELECT parent.id
-    FROM ancestors CROSS JOIN LATERAL (
-      SELECT edge.parent_id AS id FROM public.resource_parents edge WHERE edge.id = ancestors.id
-      UNION ALL
-      SELECT ownable.project_id FROM public.ownables ownable WHERE ownable.id = ancestors.id
-    ) parent
-  )
-  SELECT EXISTS (
-    SELECT 1 FROM ancestors
-    JOIN public.resources ancestor ON ancestor.id = ancestors.id
-    WHERE ancestor.archived_at IS NOT NULL
-  )
-$$;
-
-CREATE FUNCTION authz.has_archived_ancestor(resource UUID) RETURNS BOOLEAN
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT EXISTS (SELECT 1 FROM public.resource_parents edge WHERE edge.id = resource AND authz.is_archived(edge.parent_id))
-    OR EXISTS (SELECT 1 FROM public.ownables ownable WHERE ownable.id = resource AND authz.is_archived(ownable.project_id))
-$$;
-
-CREATE FUNCTION authz.blocking_organizations() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT block.organization_id FROM public.organization_blocks block
-  WHERE block.principal_id IN (authz.caller_id(), authz.acting_installation_id())
-    AND (block.expires_at IS NULL OR block.expires_at > now())
+    AND (authz.acting_installation_id() IS NULL
+      OR (invitation.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
+    AND NOT (invitation.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 -- An installation never acts with its user's platform authority.
 CREATE FUNCTION authz.is_platform_operator() RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT authz.acting_installation_id() IS NULL
-    AND EXISTS (SELECT 1 FROM public.platform_operators operator WHERE operator.id = authz.caller_id())
+  SELECT EXISTS (
+    SELECT 1 FROM public.platform_operators operator
+    WHERE operator.id = authz.caller_id() AND authz.acting_installation_id() IS NULL
+  )
 $$;
 
 -- REPEATABLE READ keeps the snapshot taken before a row lock waited, so a check
@@ -247,7 +230,6 @@ ALTER FUNCTION authz.link_ids() OWNER TO authz_owner;
 ALTER FUNCTION authz.verified_email() OWNER TO authz_owner;
 ALTER FUNCTION authz.max_tree_depth() OWNER TO authz_owner;
 ALTER FUNCTION authz.caller_grantees() OWNER TO authz_owner;
-ALTER FUNCTION authz.installation_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.capped_kinds(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.granted_resources(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.containers_with(authz.role) OWNER TO authz_owner;
@@ -263,8 +245,6 @@ ALTER FUNCTION authz.organizations_reaching(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.organizations_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.founded_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.pending_invitations() OWNER TO authz_owner;
-ALTER FUNCTION authz.is_archived(UUID) OWNER TO authz_owner;
-ALTER FUNCTION authz.has_archived_ancestor(UUID) OWNER TO authz_owner;
 ALTER FUNCTION authz.blocking_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.is_platform_operator() OWNER TO authz_owner;
 ALTER FUNCTION authz.refuse_repeatable_read() OWNER TO authz_owner;

@@ -68,6 +68,14 @@ pub const SETS_WITHIN: &[(&str, &str)] = &[
         "authz.resources_with('writer')",
         "authz.resources_with('reader')",
     ),
+    (
+        "authz.capped_kinds('admin')",
+        "authz.capped_kinds('writer')",
+    ),
+    (
+        "authz.capped_kinds('writer')",
+        "authz.capped_kinds('reader')",
+    ),
 ];
 
 /// The deployment connetto-schema is written for, over the parsed cluster
@@ -160,18 +168,19 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         table("organization_blocks"),
         "organization_blocks_principal_id_principal_kind_fkey",
     );
-    // Whoever deletes a resource administers it, and sharable_grants lets that admin delete every grant on it
-    constrainer.allow_foreign_key(
-        "cascade_into_row_level_security_table",
-        table("grants"),
-        "grants_organization_id_resource_id_fkey",
-    );
-    // Deleting a folder or project needs organization admin, which also administers its parent as the edge policy asks
-    constrainer.allow_foreign_key(
-        "cascade_into_row_level_security_table",
-        table("resource_parents"),
-        "resource_parents_organization_id_id_resource_kind_fkey",
-    );
+    // Every key into resources carries archived, and ON UPDATE CASCADE keeps the copy each archive policy reads equal to it.
+    // Whoever deletes a resource administers it, and sharable_grants lets that admin delete every grant on it.
+    // Deleting a folder or project needs organization admin, which also administers its parent as the edge policy asks.
+    for (key_table, key) in [
+        ("grants", "grants_organization_id_resource_id_resource_archived_fkey"),
+        ("resource_parents", "resource_parents_organization_id_id_resource_kind_archived_fkey"),
+        ("resource_parents", "resource_parents_organization_id_parent_id_parent_kind_par_fkey"),
+        ("ownables", "ownables_organization_id_id_kind_archived_fkey"),
+        ("ownables", "ownables_organization_id_project_id_project_kind_project_a_fkey"),
+    ] {
+        constrainer.allow_foreign_key("cascade_into_row_level_security_table", table(key_table), key);
+        constrainer.allow_foreign_key("copied_column_through_superkey", table(key_table), key);
+    }
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
     constrainer.allow_table("unaudited_authority_table", table("grantees"));
     // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin
@@ -202,5 +211,10 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         "unscoped_unique_constraint_on_row_level_security_table",
         table("share_links"),
         "share_links_token_hash_key",
+    );
+    // A bearer reads back only the link ids it presented, kept while unrevoked and unexpired, which share_links_select hides from it
+    constrainer.allow_function(
+        "exposed_definer_over_protected_table",
+        table("caller_grantees").with_schema("authz", false),
     );
 }

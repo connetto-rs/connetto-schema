@@ -42,6 +42,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "archery"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ca55ee147b1926dbea904f50fe4902494e97bc742205abbbf10c709e43815f"
+dependencies = [
+ "triomphe",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -682,6 +691,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 
 [[package]]
+name = "rpds"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e025feb26210bc196b908e72deb063b1b4000754304341cbc168a1e72c857ebc"
+dependencies = [
+ "archery",
+ "smallvec",
+]
+
+[[package]]
 name = "rustc-std-workspace-alloc"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -775,9 +794,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "smallvec"
+version = "1.16.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
+
+[[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#40dd022533c01f9bebdb6a3ee85fd3d1d0ad6ba5"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#95bd3dcf042e76c079f7027943498d0b4f9da9ce"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -785,6 +810,7 @@ dependencies = [
  "sql-values",
  "sqlparser",
  "sqlparser-canonicalize",
+ "sqlparser-expr-eval",
  "sqlparser-plpgsql",
  "sqlstate",
  "thiserror",
@@ -793,9 +819,8 @@ dependencies = [
 
 [[package]]
 name = "sql-values"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa63391be723434747b0c2ffc2e7270f4a7a476d083b55cdda961c4773d1d5e4"
+version = "0.6.0"
+source = "git+https://github.com/connetto-rs/sql-values?branch=main#bee0f26da9575f1f0ab38550e3188cb25590058e"
 dependencies = [
  "jiff",
  "thiserror",
@@ -804,7 +829,7 @@ dependencies = [
 [[package]]
 name = "sql_relations"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/synql?branch=main#f7875b3547dac1726d43334ee90432d64d214752"
+source = "git+https://github.com/connetto-rs/synql?branch=main#30768ec07333a88c902a3c03318c1f61899d90e2"
 dependencies = [
  "sql-traits",
  "sqlparser",
@@ -813,7 +838,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#46cbf0d92f9534beaf7c39eaee23e2e9548620b8"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#6a37ecb3fd517adee436e56b96e7fce4402a5708"
 dependencies = [
  "log",
  "recursive",
@@ -832,6 +857,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlparser-expr-eval"
+version = "0.1.0"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#46deb4392399a9658ac504ad39fd32556d4f9475"
+dependencies = [
+ "rpds",
+ "sql-values",
+ "sqlparser",
+]
+
+[[package]]
 name = "sqlparser-plpgsql"
 version = "0.1.0"
 source = "git+https://github.com/connetto-rs/sqlparser-plpgsql?branch=main#f5ea51d2d98a1ce18fc47f74185836165fcac612"
@@ -844,7 +879,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#46cbf0d92f9534beaf7c39eaee23e2e9548620b8"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#6a37ecb3fd517adee436e56b96e7fce4402a5708"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -922,7 +957,7 @@ dependencies = [
 [[package]]
 name = "synql"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/synql?branch=main#f7875b3547dac1726d43334ee90432d64d214752"
+source = "git+https://github.com/connetto-rs/synql?branch=main#30768ec07333a88c902a3c03318c1f61899d90e2"
 dependencies = [
  "enumflags2",
  "geometric-traits",
@@ -1053,6 +1088,12 @@ name = "toml_writer"
 version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
+
+[[package]]
+name = "triomphe"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d15f4f5898bcfc5d8a8e45ed30b2f108d710c1a2e5489dbf80e078f707181bc"
 
 [[package]]
 name = "typenum"

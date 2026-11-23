@@ -3,12 +3,15 @@ CREATE TABLE resources (
   kind authz.resource_kind NOT NULL,
   organization_id UUID NOT NULL REFERENCES organizations (id),
   archived_at TIMESTAMPTZ,
+  -- An ancestor is archived. Each table's archive policies read archived on their own row,
+  -- through copies that the foreign keys onto archived keep equal.
+  inherits_archive BOOLEAN NOT NULL DEFAULT FALSE,
+  archived BOOLEAN GENERATED ALWAYS AS (archived_at IS NOT NULL OR inherits_archive) STORED NOT NULL,
   writers_can_share BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (organization_id, id),
-  UNIQUE (organization_id, id, kind),
+  UNIQUE (organization_id, id, archived),
+  UNIQUE (organization_id, id, kind, archived),
   CHECK ((kind = 'organization') = (id = organization_id))
 );
-CREATE INDEX ON resources (id) WHERE archived_at IS NOT NULL;
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resources FORCE ROW LEVEL SECURITY;
 
@@ -18,8 +21,12 @@ CREATE TABLE resource_parents (
   resource_kind authz.resource_kind NOT NULL CHECK (resource_kind IN ('folder', 'project')),
   parent_id UUID NOT NULL CHECK (parent_id <> id),
   parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
-  FOREIGN KEY (organization_id, id, resource_kind) REFERENCES resources (organization_id, id, kind) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, parent_id, parent_kind) REFERENCES resources (organization_id, id, kind)
+  archived BOOLEAN NOT NULL DEFAULT FALSE,
+  parent_archived BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (organization_id, id, resource_kind, archived) REFERENCES resources (organization_id, id, kind, archived)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (organization_id, parent_id, parent_kind, parent_archived) REFERENCES resources (organization_id, id, kind, archived)
+    ON UPDATE CASCADE
 );
 CREATE INDEX ON resource_parents (parent_id);
 ALTER TABLE resource_parents ENABLE ROW LEVEL SECURITY;
@@ -28,13 +35,17 @@ ALTER TABLE resource_parents FORCE ROW LEVEL SECURITY;
 CREATE TABLE ownables (
   id UUID PRIMARY KEY,
   organization_id UUID NOT NULL,
-  kind authz.resource_kind GENERATED ALWAYS AS ('ownable'::authz.resource_kind) STORED NOT NULL,
+  kind authz.resource_kind NOT NULL DEFAULT 'ownable' CHECK (kind = 'ownable'),
   project_id UUID NOT NULL,
-  project_kind authz.resource_kind GENERATED ALWAYS AS ('project'::authz.resource_kind) STORED NOT NULL,
+  project_kind authz.resource_kind NOT NULL DEFAULT 'project' CHECK (project_kind = 'project'),
   created_by_id UUID NOT NULL REFERENCES users (id),
+  archived BOOLEAN NOT NULL DEFAULT FALSE,
+  project_archived BOOLEAN NOT NULL DEFAULT FALSE,
   UNIQUE (id, project_id),
-  FOREIGN KEY (organization_id, id, kind) REFERENCES resources (organization_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
-  FOREIGN KEY (organization_id, project_id, project_kind) REFERENCES resources (organization_id, id, kind)
+  FOREIGN KEY (organization_id, id, kind, archived) REFERENCES resources (organization_id, id, kind, archived)
+    ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (organization_id, project_id, project_kind, project_archived) REFERENCES resources (organization_id, id, kind, archived)
+    ON UPDATE CASCADE
 );
 CREATE INDEX ON ownables (project_id);
 CREATE INDEX ON ownables (created_by_id);

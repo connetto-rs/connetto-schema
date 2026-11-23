@@ -18,7 +18,9 @@ thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 
 [patch.crates-io]
-diesel = { git = "https://github.com/diesel-rs/diesel", branch = "main" }
+# pg2sqlite registers the schema's helpers as table-valued functions through diesel#5396, stacked on diesel#5395.
+diesel = { git = "https://github.com/diesel-rs/diesel", branch = "upstream/sqlite-table-valued-functions-dynamic" }
+sqlstate = { git = "https://github.com/diesel-rs/diesel", branch = "upstream/sqlite-table-valued-functions-dynamic" }
 sqlparser = { git = "https://github.com/apache/datafusion-sqlparser-rs", branch = "main" }
 sql-values = { git = "https://github.com/connetto-rs/sql-values", branch = "main" }
 

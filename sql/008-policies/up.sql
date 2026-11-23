@@ -111,7 +111,8 @@ CREATE POLICY team_members_delete ON team_members FOR DELETE TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))));
 
-GRANT SELECT, INSERT, UPDATE (archived_at, writers_can_share), DELETE ON resources TO app;
+GRANT SELECT, INSERT (id, kind, organization_id, archived_at, writers_can_share), UPDATE (archived_at, writers_can_share), DELETE
+  ON resources TO app;
 CREATE POLICY resources_select ON resources FOR SELECT TO app
   USING ((id = ANY (ARRAY(SELECT authz.resources_with('reader'))))
     OR (organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
@@ -136,7 +137,8 @@ CREATE POLICY resources_delete ON resources FOR DELETE TO app
     OR (kind IN ('folder', 'project') AND id = ANY (ARRAY(SELECT authz.resources_with('admin')))
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 
-GRANT SELECT, INSERT, UPDATE (parent_id, parent_kind), DELETE ON resource_parents TO app;
+GRANT SELECT, INSERT (id, organization_id, resource_kind, parent_id, parent_kind), UPDATE (parent_id, parent_kind), DELETE
+  ON resource_parents TO app;
 CREATE POLICY resource_parents_select ON resource_parents FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
 CREATE POLICY resource_parents_insert ON resource_parents FOR INSERT TO app
@@ -147,7 +149,7 @@ CREATE POLICY resource_parents_update ON resource_parents FOR UPDATE TO app
 CREATE POLICY resource_parents_delete ON resource_parents FOR DELETE TO app
   USING (ARRAY[organization_id, parent_id] <@ ARRAY(SELECT authz.resources_with('admin')));
 
-GRANT SELECT, INSERT, UPDATE (project_id), DELETE ON ownables TO app;
+GRANT SELECT, INSERT (id, organization_id, project_id, created_by_id), UPDATE (project_id), DELETE ON ownables TO app;
 CREATE POLICY ownables_select ON ownables FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
 CREATE POLICY ownables_insert ON ownables FOR INSERT TO app
@@ -161,7 +163,8 @@ CREATE POLICY ownables_update ON ownables FOR UPDATE TO app
 CREATE POLICY ownables_delete ON ownables FOR DELETE TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
 
-GRANT SELECT, INSERT, UPDATE (role, expires_at), DELETE ON grants TO app;
+GRANT SELECT, INSERT (resource_id, organization_id, grantee_id, grantee_kind, role, expires_at), UPDATE (role, expires_at), DELETE
+  ON grants TO app;
 CREATE POLICY grants_select ON grants FOR SELECT TO app
   USING (resource_id = ANY (ARRAY(SELECT authz.sharable_resources()))
     OR (grantee_id = ANY (ARRAY(SELECT authz.caller_grantees()))
@@ -205,7 +208,9 @@ CREATE POLICY share_links_delete ON share_links FOR DELETE TO app
 
 GRANT SELECT, INSERT, UPDATE (expires_at), DELETE ON organization_blocks TO app;
 CREATE POLICY organization_blocks_select ON organization_blocks FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
+    OR principal_id = (SELECT authz.caller_id())
+    OR principal_id = (SELECT authz.acting_installation_id()));
 CREATE POLICY organization_blocks_insert ON organization_blocks FOR INSERT TO app
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
     AND (principal_id, principal_kind) IN (SELECT grantee.id, grantee.kind FROM grantees grantee));
@@ -254,33 +259,31 @@ GRANT SELECT ON platform_audit_events TO app;
 CREATE POLICY platform_audit_events_select ON platform_audit_events FOR SELECT TO app
   USING ((SELECT authz.is_platform_operator()));
 
-CREATE POLICY resources_archived_insert ON resources AS RESTRICTIVE FOR INSERT TO app
-  WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(organization_id));
 CREATE POLICY resources_archived_update ON resources AS RESTRICTIVE FOR UPDATE TO app
-  USING (NOT authz.has_archived_ancestor(id));
+  USING (NOT inherits_archive);
 CREATE POLICY resources_archived_delete ON resources AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT authz.is_archived(id));
+  USING (NOT archived);
 CREATE POLICY ownables_archived_insert ON ownables AS RESTRICTIVE FOR INSERT TO app
-  WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(project_id));
+  WITH CHECK (NOT archived AND NOT project_archived);
 CREATE POLICY ownables_archived_update ON ownables AS RESTRICTIVE FOR UPDATE TO app
-  USING (NOT authz.is_archived(id))
-  WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(project_id));
+  USING (NOT archived)
+  WITH CHECK (NOT archived AND NOT project_archived);
 CREATE POLICY ownables_archived_delete ON ownables AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT authz.is_archived(id));
+  USING (NOT archived);
 CREATE POLICY grants_archived_insert ON grants AS RESTRICTIVE FOR INSERT TO app
-  WITH CHECK (NOT authz.is_archived(resource_id));
+  WITH CHECK (NOT resource_archived);
 CREATE POLICY grants_archived_update ON grants AS RESTRICTIVE FOR UPDATE TO app
-  USING (NOT authz.is_archived(resource_id))
-  WITH CHECK (NOT authz.is_archived(resource_id));
+  USING (NOT resource_archived)
+  WITH CHECK (NOT resource_archived);
 CREATE POLICY grants_archived_delete ON grants AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT authz.is_archived(resource_id));
+  USING (NOT resource_archived);
 CREATE POLICY resource_parents_archived_insert ON resource_parents AS RESTRICTIVE FOR INSERT TO app
-  WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(parent_id));
+  WITH CHECK (NOT archived AND NOT parent_archived);
 CREATE POLICY resource_parents_archived_update ON resource_parents AS RESTRICTIVE FOR UPDATE TO app
-  USING (NOT authz.is_archived(id))
-  WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(parent_id));
+  USING (NOT archived)
+  WITH CHECK (NOT archived AND NOT parent_archived);
 CREATE POLICY resource_parents_archived_delete ON resource_parents AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT authz.is_archived(id));
+  USING (NOT archived);
 
 CREATE POLICY resources_blocked ON resources AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
@@ -315,9 +318,18 @@ CREATE POLICY resource_parents_blocked ON resource_parents AS RESTRICTIVE FOR AL
 CREATE POLICY share_links_blocked ON share_links AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
   WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
-CREATE POLICY organization_blocks_blocked ON organization_blocks AS RESTRICTIVE FOR ALL TO app
+-- A blocked principal still reads its own blocks, and only an unblocked admin writes them.
+CREATE POLICY organization_blocks_blocked_select ON organization_blocks AS RESTRICTIVE FOR SELECT TO app
+  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+    OR principal_id = (SELECT authz.caller_id())
+    OR principal_id = (SELECT authz.acting_installation_id()));
+CREATE POLICY organization_blocks_blocked_insert ON organization_blocks AS RESTRICTIVE FOR INSERT TO app
+  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+CREATE POLICY organization_blocks_blocked_update ON organization_blocks AS RESTRICTIVE FOR UPDATE TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
   WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+CREATE POLICY organization_blocks_blocked_delete ON organization_blocks AS RESTRICTIVE FOR DELETE TO app
+  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
 CREATE POLICY apps_blocked ON apps AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
   WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));

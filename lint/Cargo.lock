@@ -33,6 +33,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "archery"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ca55ee147b1926dbea904f50fe4902494e97bc742205abbbf10c709e43815f"
+dependencies = [
+ "triomphe",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -490,13 +499,13 @@ checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 [[package]]
 name = "rls2fga"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/rls2fga?branch=main#a773d74dc7031923389972978e45131cd6be1481"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#9b380af915319587db553a62b6ecb51b050e51a1"
 dependencies = [
  "rls2fga-types",
  "serde",
  "serde_json",
  "sql-traits",
- "sql-values 0.6.0",
+ "sql-values",
  "sqlparser",
  "thiserror",
 ]
@@ -504,11 +513,21 @@ dependencies = [
 [[package]]
 name = "rls2fga-types"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/rls2fga?branch=main#a773d74dc7031923389972978e45131cd6be1481"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#9b380af915319587db553a62b6ecb51b050e51a1"
 dependencies = [
  "serde",
- "sql-values 0.6.0",
+ "sql-values",
  "thiserror",
+]
+
+[[package]]
+name = "rpds"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e025feb26210bc196b908e72deb063b1b4000754304341cbc168a1e72c857ebc"
+dependencies = [
+ "archery",
+ "smallvec",
 ]
 
 [[package]]
@@ -584,30 +603,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "smallvec"
+version = "1.16.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
+
+[[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#e71b4b8e9f3bb2e22cc3dd218ca96e8f8a536a01"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#7445c8f3076822c85655c2932598dc53541fcebd"
 dependencies = [
  "geometric-traits",
  "once_cell",
  "sha2",
- "sql-values 0.5.1",
+ "sql-values",
  "sqlparser",
  "sqlparser-canonicalize",
+ "sqlparser-expr-eval",
  "sqlparser-plpgsql",
  "sqlstate",
  "thiserror",
  "unicode-normalization",
-]
-
-[[package]]
-name = "sql-values"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa63391be723434747b0c2ffc2e7270f4a7a476d083b55cdda961c4773d1d5e4"
-dependencies = [
- "jiff",
- "thiserror",
 ]
 
 [[package]]
@@ -622,7 +638,7 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#6707fe87b4940726b439c34b679ce8415260412d"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#5386c8febf75c3032858984201b87899929d66c2"
 dependencies = [
  "heck",
  "inflection-rs",
@@ -636,7 +652,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#46cbf0d92f9534beaf7c39eaee23e2e9548620b8"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#6a37ecb3fd517adee436e56b96e7fce4402a5708"
 dependencies = [
  "log",
  "recursive",
@@ -656,6 +672,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlparser-expr-eval"
+version = "0.1.0"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#46deb4392399a9658ac504ad39fd32556d4f9475"
+dependencies = [
+ "rpds",
+ "sql-values",
+ "sqlparser",
+]
+
+[[package]]
 name = "sqlparser-plpgsql"
 version = "0.1.0"
 source = "git+https://github.com/connetto-rs/sqlparser-plpgsql?branch=main#f5ea51d2d98a1ce18fc47f74185836165fcac612"
@@ -668,7 +694,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#46cbf0d92f9534beaf7c39eaee23e2e9548620b8"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#6a37ecb3fd517adee436e56b96e7fce4402a5708"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -747,6 +773,12 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
+name = "triomphe"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d15f4f5898bcfc5d8a8e45ed30b2f108d710c1a2e5489dbf80e078f707181bc"
 
 [[package]]
 name = "typenum"

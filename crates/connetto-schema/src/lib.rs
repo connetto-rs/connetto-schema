@@ -668,6 +668,7 @@ pub mod app_installations_model {
         ::diesel::Associations,
         ::diesel_builders::prelude::TableModel
     )]
+    #[table_model(error = ::validation_errors::ValidationError)]
     #[diesel(belongs_to(connetto_schema::App, foreign_key = app_id))]
     #[diesel(belongs_to(connetto_schema::Organization, foreign_key = organization_id))]
     #[table_model(foreign_key((app_id), (::connetto_schema::apps::id)))]
@@ -682,21 +683,47 @@ pub mod app_installations_model {
     )]
     #[diesel(table_name = app_installations)]
     pub struct AppInstallation {
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         id: ::rosetta_uuid::Uuid,
-        #[table_model(generated)]
+        #[table_model(
+            default = ::connetto_schema::authz_grantee_kind::GranteeKind::Installation
+        )]
         #[diesel(
             sql_type = ::connetto_schema::authz_grantee_kind::sql_types::GranteeKind
         )]
         kind: ::connetto_schema::authz_grantee_kind::GranteeKind,
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         app_id: ::rosetta_uuid::Uuid,
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         organization_id: ::rosetta_uuid::Uuid,
     }
     ::diesel_builders::prelude::unique_index!(
         app_installations::organization_id, app_installations::id
     );
+    impl ::diesel_builders::ValidateColumn<app_installations::kind>
+    for <app_installations::table as ::diesel_builders::TableExt>::NewValues {
+        type Error = ::validation_errors::ValidationError;
+        #[inline]
+        fn validate_column(
+            kind: &::connetto_schema::authz_grantee_kind::GranteeKind,
+        ) -> Result<(), Self::Error> {
+            use diesel::Column;
+            if *kind != ::connetto_schema::authz_grantee_kind::GranteeKind::Installation
+            {
+                return Err(
+                    ::validation_errors::ValidationError::check_violated(
+                        <crate::app_installations::table as ::diesel_builders::TableExt>::TABLE_NAME,
+                        &[crate::app_installations::kind::NAME],
+                        "kind = 'installation'",
+                    ),
+                );
+            }
+            Ok(())
+        }
+    }
     ::diesel::allow_tables_to_appear_in_same_query!(
         app_installations, ::connetto_schema::apps
     );
@@ -929,10 +956,11 @@ pub mod grants_model {
     #[diesel(primary_key(resource_id, grantee_id))]
     #[table_model(
         foreign_key(
-            (organization_id, resource_id),
+            (organization_id, resource_id, resource_archived),
             (
                 ::connetto_schema::resources::organization_id,
-                ::connetto_schema::resources::id
+                ::connetto_schema::resources::id,
+                ::connetto_schema::resources::archived
             )
         )
     )]
@@ -964,6 +992,9 @@ pub mod grants_model {
         #[infallible]
         #[diesel(sql_type = ::rosetta_utc::diesel_impls::TimestampUTC)]
         expires_at: Option<::rosetta_utc::TimestampUTC>,
+        #[table_model(default = false)]
+        #[infallible]
+        resource_archived: bool,
     }
     impl ::diesel_builders::ValidateRecord<grants::table>
     for <grants::table as ::diesel_builders::TableExt>::NewValues {
@@ -1288,6 +1319,7 @@ pub mod organizations_model {
         ::diesel::Associations,
         ::diesel_builders::prelude::TableModel
     )]
+    #[table_model(error = ::validation_errors::ValidationError)]
     #[diesel(belongs_to(connetto_schema::User, foreign_key = created_by_id))]
     #[table_model(foreign_key((created_by_id), (::connetto_schema::users::id)))]
     #[table_model(
@@ -1298,18 +1330,44 @@ pub mod organizations_model {
     )]
     #[diesel(table_name = organizations)]
     pub struct Organization {
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         id: ::rosetta_uuid::Uuid,
-        #[table_model(generated)]
+        #[table_model(
+            default = ::connetto_schema::authz_grantee_kind::GranteeKind::Organization
+        )]
         #[diesel(
             sql_type = ::connetto_schema::authz_grantee_kind::sql_types::GranteeKind
         )]
         kind: ::connetto_schema::authz_grantee_kind::GranteeKind,
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         created_by_id: ::rosetta_uuid::Uuid,
         ///Set by the first admin grant on the organization. Its creator takes the founding membership and grant only while it is NULL.
+        #[infallible]
         #[diesel(sql_type = ::rosetta_utc::diesel_impls::TimestampUTC)]
         founded_at: Option<::rosetta_utc::TimestampUTC>,
+    }
+    impl ::diesel_builders::ValidateColumn<organizations::kind>
+    for <organizations::table as ::diesel_builders::TableExt>::NewValues {
+        type Error = ::validation_errors::ValidationError;
+        #[inline]
+        fn validate_column(
+            kind: &::connetto_schema::authz_grantee_kind::GranteeKind,
+        ) -> Result<(), Self::Error> {
+            use diesel::Column;
+            if *kind != ::connetto_schema::authz_grantee_kind::GranteeKind::Organization
+            {
+                return Err(
+                    ::validation_errors::ValidationError::check_violated(
+                        <crate::organizations::table as ::diesel_builders::TableExt>::TABLE_NAME,
+                        &[crate::organizations::kind::NAME],
+                        "kind = 'organization'",
+                    ),
+                );
+            }
+            Ok(())
+        }
     }
     ::diesel::allow_tables_to_appear_in_same_query!(
         organizations, ::connetto_schema::grantees
@@ -1331,50 +1389,109 @@ pub mod ownables_model {
         ::diesel::Associations,
         ::diesel_builders::prelude::TableModel
     )]
+    #[table_model(error = ::validation_errors::ValidationError)]
     #[diesel(belongs_to(connetto_schema::User, foreign_key = created_by_id))]
     #[table_model(foreign_key((created_by_id), (::connetto_schema::users::id)))]
     #[table_model(
         foreign_key(
-            (organization_id, id, kind),
+            (organization_id, id, kind, archived),
             (
                 ::connetto_schema::resources::organization_id,
                 ::connetto_schema::resources::id,
-                ::connetto_schema::resources::kind
+                ::connetto_schema::resources::kind,
+                ::connetto_schema::resources::archived
             )
         )
     )]
     #[table_model(
         foreign_key(
-            (organization_id, project_id, project_kind),
+            (organization_id, project_id, project_kind, project_archived),
             (
                 ::connetto_schema::resources::organization_id,
                 ::connetto_schema::resources::id,
-                ::connetto_schema::resources::kind
+                ::connetto_schema::resources::kind,
+                ::connetto_schema::resources::archived
             )
         )
     )]
     #[diesel(table_name = ownables)]
     pub struct Ownable {
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         id: ::rosetta_uuid::Uuid,
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         organization_id: ::rosetta_uuid::Uuid,
-        #[table_model(generated)]
+        #[table_model(
+            default = ::connetto_schema::authz_resource_kind::ResourceKind::Ownable
+        )]
         #[diesel(
             sql_type = ::connetto_schema::authz_resource_kind::sql_types::ResourceKind
         )]
         kind: ::connetto_schema::authz_resource_kind::ResourceKind,
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         project_id: ::rosetta_uuid::Uuid,
-        #[table_model(generated)]
+        #[table_model(
+            default = ::connetto_schema::authz_resource_kind::ResourceKind::Project
+        )]
         #[diesel(
             sql_type = ::connetto_schema::authz_resource_kind::sql_types::ResourceKind
         )]
         project_kind: ::connetto_schema::authz_resource_kind::ResourceKind,
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         created_by_id: ::rosetta_uuid::Uuid,
+        #[table_model(default = false)]
+        #[infallible]
+        archived: bool,
+        #[table_model(default = false)]
+        #[infallible]
+        project_archived: bool,
     }
     ::diesel_builders::prelude::unique_index!(ownables::id, ownables::project_id);
+    impl ::diesel_builders::ValidateColumn<ownables::kind>
+    for <ownables::table as ::diesel_builders::TableExt>::NewValues {
+        type Error = ::validation_errors::ValidationError;
+        #[inline]
+        fn validate_column(
+            kind: &::connetto_schema::authz_resource_kind::ResourceKind,
+        ) -> Result<(), Self::Error> {
+            use diesel::Column;
+            if *kind != ::connetto_schema::authz_resource_kind::ResourceKind::Ownable {
+                return Err(
+                    ::validation_errors::ValidationError::check_violated(
+                        <crate::ownables::table as ::diesel_builders::TableExt>::TABLE_NAME,
+                        &[crate::ownables::kind::NAME],
+                        "kind = 'ownable'",
+                    ),
+                );
+            }
+            Ok(())
+        }
+    }
+    impl ::diesel_builders::ValidateColumn<ownables::project_kind>
+    for <ownables::table as ::diesel_builders::TableExt>::NewValues {
+        type Error = ::validation_errors::ValidationError;
+        #[inline]
+        fn validate_column(
+            project_kind: &::connetto_schema::authz_resource_kind::ResourceKind,
+        ) -> Result<(), Self::Error> {
+            use diesel::Column;
+            if *project_kind
+                != ::connetto_schema::authz_resource_kind::ResourceKind::Project
+            {
+                return Err(
+                    ::validation_errors::ValidationError::check_violated(
+                        <crate::ownables::table as ::diesel_builders::TableExt>::TABLE_NAME,
+                        &[crate::ownables::project_kind::NAME],
+                        "project_kind = 'project'",
+                    ),
+                );
+            }
+            Ok(())
+        }
+    }
     ::diesel::allow_tables_to_appear_in_same_query!(
         ownables, ::connetto_schema::resources
     );
@@ -1515,10 +1632,12 @@ pub mod platform_operators_model {
         ::diesel_builders::prelude::TableModel
     )]
     #[table_model(ancestors(connetto_schema::users))]
+    #[table_model(error = ::validation_errors::ValidationError)]
     #[diesel(belongs_to(connetto_schema::User, foreign_key = id))]
     #[table_model(foreign_key((id), (::connetto_schema::users::id)))]
     #[diesel(table_name = platform_operators)]
     pub struct PlatformOperator {
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         id: ::rosetta_uuid::Uuid,
     }
@@ -1549,21 +1668,23 @@ pub mod resource_parents_model {
     #[table_model(record_error = ::validation_errors::ValidationError)]
     #[table_model(
         foreign_key(
-            (organization_id, id, resource_kind),
+            (organization_id, id, resource_kind, archived),
             (
                 ::connetto_schema::resources::organization_id,
                 ::connetto_schema::resources::id,
-                ::connetto_schema::resources::kind
+                ::connetto_schema::resources::kind,
+                ::connetto_schema::resources::archived
             )
         )
     )]
     #[table_model(
         foreign_key(
-            (organization_id, parent_id, parent_kind),
+            (organization_id, parent_id, parent_kind, parent_archived),
             (
                 ::connetto_schema::resources::organization_id,
                 ::connetto_schema::resources::id,
-                ::connetto_schema::resources::kind
+                ::connetto_schema::resources::kind,
+                ::connetto_schema::resources::archived
             )
         )
     )]
@@ -1586,6 +1707,12 @@ pub mod resource_parents_model {
             sql_type = ::connetto_schema::authz_resource_kind::sql_types::ResourceKind
         )]
         parent_kind: ::connetto_schema::authz_resource_kind::ResourceKind,
+        #[table_model(default = false)]
+        #[infallible]
+        archived: bool,
+        #[table_model(default = false)]
+        #[infallible]
+        parent_archived: bool,
     }
     impl ::diesel_builders::ValidateColumn<resource_parents::resource_kind>
     for <resource_parents::table as ::diesel_builders::TableExt>::NewValues {
@@ -1699,13 +1826,22 @@ pub mod resources_model {
         #[infallible]
         #[diesel(sql_type = ::rosetta_utc::diesel_impls::TimestampUTC)]
         archived_at: Option<::rosetta_utc::TimestampUTC>,
+        /**An ancestor is archived. Each table's archive policies read archived on their own row,
+through copies that the foreign keys onto archived keep equal.*/
+        #[table_model(default = false)]
+        #[infallible]
+        inherits_archive: bool,
+        #[table_model(generated)]
+        archived: bool,
         #[table_model(default = false)]
         #[infallible]
         writers_can_share: bool,
     }
-    ::diesel_builders::prelude::unique_index!(resources::organization_id, resources::id);
     ::diesel_builders::prelude::unique_index!(
-        resources::organization_id, resources::id, resources::kind
+        resources::organization_id, resources::id, resources::archived
+    );
+    ::diesel_builders::prelude::unique_index!(
+        resources::organization_id, resources::id, resources::kind, resources::archived
     );
     impl ::diesel_builders::ValidateRecord<resources::table>
     for <resources::table as ::diesel_builders::TableExt>::NewValues {
@@ -1777,7 +1913,9 @@ pub mod share_links_model {
         #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         id: ::rosetta_uuid::Uuid,
-        #[table_model(generated)]
+        #[table_model(
+            default = ::connetto_schema::authz_grantee_kind::GranteeKind::Link
+        )]
         #[diesel(
             sql_type = ::connetto_schema::authz_grantee_kind::sql_types::GranteeKind
         )]
@@ -1797,6 +1935,26 @@ pub mod share_links_model {
         created_by_id: ::rosetta_uuid::Uuid,
     }
     ::diesel_builders::prelude::unique_index!(share_links::token_hash);
+    impl ::diesel_builders::ValidateColumn<share_links::kind>
+    for <share_links::table as ::diesel_builders::TableExt>::NewValues {
+        type Error = ::validation_errors::ValidationError;
+        #[inline]
+        fn validate_column(
+            kind: &::connetto_schema::authz_grantee_kind::GranteeKind,
+        ) -> Result<(), Self::Error> {
+            use diesel::Column;
+            if *kind != ::connetto_schema::authz_grantee_kind::GranteeKind::Link {
+                return Err(
+                    ::validation_errors::ValidationError::check_violated(
+                        <crate::share_links::table as ::diesel_builders::TableExt>::TABLE_NAME,
+                        &[crate::share_links::kind::NAME],
+                        "kind = 'link'",
+                    ),
+                );
+            }
+            Ok(())
+        }
+    }
     impl ::diesel_builders::ValidateColumn<share_links::token_hash>
     for <share_links::table as ::diesel_builders::TableExt>::NewValues {
         type Error = ::validation_errors::ValidationError;
@@ -1951,6 +2109,7 @@ pub mod teams_model {
         ::diesel::Associations,
         ::diesel_builders::prelude::TableModel
     )]
+    #[table_model(error = ::validation_errors::ValidationError)]
     #[diesel(belongs_to(connetto_schema::Organization, foreign_key = organization_id))]
     #[table_model(
         foreign_key((organization_id), (::connetto_schema::organizations::id))
@@ -1963,17 +2122,41 @@ pub mod teams_model {
     )]
     #[diesel(table_name = teams)]
     pub struct Team {
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         id: ::rosetta_uuid::Uuid,
-        #[table_model(generated)]
+        #[table_model(
+            default = ::connetto_schema::authz_grantee_kind::GranteeKind::Team
+        )]
         #[diesel(
             sql_type = ::connetto_schema::authz_grantee_kind::sql_types::GranteeKind
         )]
         kind: ::connetto_schema::authz_grantee_kind::GranteeKind,
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         organization_id: ::rosetta_uuid::Uuid,
     }
     ::diesel_builders::prelude::unique_index!(teams::organization_id, teams::id);
+    impl ::diesel_builders::ValidateColumn<teams::kind>
+    for <teams::table as ::diesel_builders::TableExt>::NewValues {
+        type Error = ::validation_errors::ValidationError;
+        #[inline]
+        fn validate_column(
+            kind: &::connetto_schema::authz_grantee_kind::GranteeKind,
+        ) -> Result<(), Self::Error> {
+            use diesel::Column;
+            if *kind != ::connetto_schema::authz_grantee_kind::GranteeKind::Team {
+                return Err(
+                    ::validation_errors::ValidationError::check_violated(
+                        <crate::teams::table as ::diesel_builders::TableExt>::TABLE_NAME,
+                        &[crate::teams::kind::NAME],
+                        "kind = 'team'",
+                    ),
+                );
+            }
+            Ok(())
+        }
+    }
     ::diesel::allow_tables_to_appear_in_same_query!(teams, ::connetto_schema::grantees);
     ::diesel::allow_tables_to_appear_in_same_query!(
         teams, ::connetto_schema::organizations
@@ -1991,6 +2174,7 @@ pub mod users_model {
         ::diesel::Identifiable,
         ::diesel_builders::prelude::TableModel
     )]
+    #[table_model(error = ::validation_errors::ValidationError)]
     #[table_model(
         foreign_key(
             (id, kind),
@@ -1999,13 +2183,36 @@ pub mod users_model {
     )]
     #[diesel(table_name = users)]
     pub struct User {
+        #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         id: ::rosetta_uuid::Uuid,
-        #[table_model(generated)]
+        #[table_model(
+            default = ::connetto_schema::authz_grantee_kind::GranteeKind::User
+        )]
         #[diesel(
             sql_type = ::connetto_schema::authz_grantee_kind::sql_types::GranteeKind
         )]
         kind: ::connetto_schema::authz_grantee_kind::GranteeKind,
+    }
+    impl ::diesel_builders::ValidateColumn<users::kind>
+    for <users::table as ::diesel_builders::TableExt>::NewValues {
+        type Error = ::validation_errors::ValidationError;
+        #[inline]
+        fn validate_column(
+            kind: &::connetto_schema::authz_grantee_kind::GranteeKind,
+        ) -> Result<(), Self::Error> {
+            use diesel::Column;
+            if *kind != ::connetto_schema::authz_grantee_kind::GranteeKind::User {
+                return Err(
+                    ::validation_errors::ValidationError::check_violated(
+                        <crate::users::table as ::diesel_builders::TableExt>::TABLE_NAME,
+                        &[crate::users::kind::NAME],
+                        "kind = 'user'",
+                    ),
+                );
+            }
+            Ok(())
+        }
     }
     ::diesel::allow_tables_to_appear_in_same_query!(users, ::connetto_schema::grantees);
 }

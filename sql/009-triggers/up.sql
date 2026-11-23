@@ -9,22 +9,23 @@ GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grant
 
 GRANT INSERT, DELETE ON grantees TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
-GRANT UPDATE (id) ON users TO authz_writer;
+GRANT UPDATE (kind) ON users TO authz_writer;
 GRANT SELECT ON organizations, teams, team_parents, resources, resource_parents, ownables, grants TO authz_writer;
-GRANT UPDATE (id, founded_at) ON organizations TO authz_writer;
+GRANT SELECT (id) ON share_links, app_installations TO authz_writer;
+GRANT UPDATE (founded_at) ON organizations TO authz_writer;
 GRANT SELECT ON memberships, invitations TO authz_writer;
 GRANT UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT SELECT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
-GRANT UPDATE (archived_at) ON resources TO authz_writer;
+GRANT UPDATE (archived_at, inherits_archive) ON resources TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
 
 CREATE FUNCTION authz_write.require_support_expiry(target_user UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   -- A row version change makes stale snapshots fail serialization.
-  UPDATE public.users SET id = id WHERE id = target_user;
+  UPDATE public.users SET kind = kind WHERE id = target_user;
   IF EXISTS (
     SELECT 1 FROM public.platform_operators operator
     JOIN public.grants permission ON permission.grantee_id = operator.id
@@ -52,8 +53,12 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER grants_support_expiry AFTER INSERT OR UPDATE ON grants
+CREATE TRIGGER grants_support_expiry AFTER INSERT ON grants
   FOR EACH ROW WHEN (NEW.grantee_kind = 'user' AND (NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at)))
+  EXECUTE FUNCTION authz_write.check_grant_support_expiry();
+CREATE TRIGGER grants_update_support_expiry AFTER UPDATE ON grants
+  FOR EACH ROW WHEN (NEW.grantee_kind = 'user' AND (NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at))
+    AND (OLD.grantee_id, OLD.grantee_kind, OLD.expires_at) IS DISTINCT FROM (NEW.grantee_id, NEW.grantee_kind, NEW.expires_at))
   EXECUTE FUNCTION authz_write.check_grant_support_expiry();
 CREATE TRIGGER platform_operators_support_expiry AFTER INSERT ON platform_operators
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_operator_support_expiry();
@@ -63,8 +68,9 @@ CREATE TRIGGER platform_operators_update_support_expiry AFTER UPDATE ON platform
 CREATE FUNCTION authz_write.insert_grantee() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  INSERT INTO public.grantees (id, kind) VALUES (NEW.id, NEW.kind);
-  RETURN NULL;
+  INSERT INTO public.grantees (id, kind) VALUES (NEW.id, NEW.kind)
+    ON CONFLICT (id, kind) DO NOTHING;
+  RETURN NEW;
 END
 $$;
 
@@ -76,16 +82,41 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER users_grantee AFTER INSERT ON users FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER users_grantee BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER users_grantee_removed AFTER DELETE ON users FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER organizations_grantee AFTER INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER users_grantee_rekeyed AFTER UPDATE ON users FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER organizations_grantee BEFORE INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER organizations_grantee_removed AFTER DELETE ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER teams_grantee AFTER INSERT ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER organizations_grantee_rekeyed AFTER UPDATE ON organizations FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER teams_grantee BEFORE INSERT ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER teams_grantee_removed AFTER DELETE ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER share_links_grantee AFTER INSERT ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER teams_grantee_rekeyed AFTER UPDATE ON teams FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER share_links_grantee BEFORE INSERT ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER share_links_grantee_removed AFTER DELETE ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER app_installations_grantee AFTER INSERT ON app_installations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER share_links_grantee_rekeyed AFTER UPDATE ON share_links FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER app_installations_grantee BEFORE INSERT ON app_installations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER app_installations_grantee_removed AFTER DELETE ON app_installations FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER app_installations_grantee_rekeyed AFTER UPDATE ON app_installations FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
+
+CREATE FUNCTION authz_write.check_grantee_subtype() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.grantees grantee WHERE grantee.id = NEW.id AND grantee.kind = NEW.kind) AND NOT (CASE NEW.kind
+    WHEN 'user' THEN EXISTS (SELECT 1 FROM public.users principal WHERE principal.id = NEW.id)
+    WHEN 'organization' THEN EXISTS (SELECT 1 FROM public.organizations organization WHERE organization.id = NEW.id)
+    WHEN 'team' THEN EXISTS (SELECT 1 FROM public.teams team WHERE team.id = NEW.id)
+    WHEN 'link' THEN EXISTS (SELECT 1 FROM public.share_links link WHERE link.id = NEW.id)
+    WHEN 'installation' THEN EXISTS (SELECT 1 FROM public.app_installations installation WHERE installation.id = NEW.id)
+  END) THEN
+    RAISE EXCEPTION 'grantee % requires its % row', NEW.id, NEW.kind USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER grantees_subtype_required AFTER INSERT OR UPDATE ON grantees
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind IN ('user', 'organization', 'team', 'link', 'installation'))
+  EXECUTE FUNCTION authz_write.check_grantee_subtype();
 
 CREATE FUNCTION authz.stamp_archived_at() RETURNS TRIGGER
 LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
@@ -120,6 +151,89 @@ CREATE TRIGGER resources_stamp_archived_at BEFORE INSERT OR UPDATE OF archived_a
 CREATE TRIGGER share_links_stamp_revoked_at BEFORE INSERT OR UPDATE OF revoked_at ON share_links
   FOR EACH ROW EXECUTE FUNCTION authz.stamp_revoked_at();
 REVOKE EXECUTE ON FUNCTION authz.stamp_archived_at(), authz.stamp_revoked_at() FROM PUBLIC, app;
+
+CREATE FUNCTION authz_write.copy_edge_archive() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  NEW.archived := coalesce((SELECT child.archived FROM public.resources child WHERE child.id = NEW.id), FALSE);
+  NEW.parent_archived := coalesce((SELECT parent.archived FROM public.resources parent WHERE parent.id = NEW.parent_id), FALSE);
+  RETURN NEW;
+END
+$$;
+
+CREATE FUNCTION authz_write.copy_ownable_archive() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  NEW.project_archived := coalesce((SELECT project.archived FROM public.resources project WHERE project.id = NEW.project_id), FALSE);
+  NEW.archived := coalesce((SELECT own.archived FROM public.resources own WHERE own.id = NEW.id), NEW.project_archived);
+  RETURN NEW;
+END
+$$;
+
+CREATE FUNCTION authz_write.copy_grant_archive() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  NEW.resource_archived := coalesce((SELECT resource.archived FROM public.resources resource WHERE resource.id = NEW.resource_id), FALSE);
+  RETURN NEW;
+END
+$$;
+
+CREATE FUNCTION authz_write.inherit_ownable_project_archive() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  UPDATE public.resources resource SET inherits_archive = ownable.project_archived
+  FROM public.ownables ownable
+  WHERE resource.id = NEW.id AND ownable.id = NEW.id
+    AND resource.inherits_archive IS DISTINCT FROM ownable.project_archived;
+  RETURN NULL;
+END
+$$;
+
+CREATE FUNCTION authz_write.inherit_parent_archive() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  UPDATE public.resources SET inherits_archive = NEW.parent_archived
+  WHERE id = NEW.id AND inherits_archive IS DISTINCT FROM NEW.parent_archived;
+  RETURN NULL;
+END
+$$;
+
+CREATE FUNCTION authz_write.inherit_project_archive() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  UPDATE public.resources SET inherits_archive = NEW.project_archived
+  WHERE id = NEW.id AND inherits_archive IS DISTINCT FROM NEW.project_archived;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER resources_inherit_archive AFTER INSERT ON resources
+  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_ownable_project_archive();
+CREATE TRIGGER resource_parents_copy_archive BEFORE INSERT ON resource_parents
+  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_edge_archive();
+CREATE TRIGGER resource_parents_move_copy_archive BEFORE UPDATE ON resource_parents
+  FOR EACH ROW WHEN ((OLD.id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.parent_id))
+  EXECUTE FUNCTION authz_write.copy_edge_archive();
+CREATE TRIGGER ownables_copy_archive BEFORE INSERT ON ownables
+  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_ownable_archive();
+CREATE TRIGGER ownables_move_copy_archive BEFORE UPDATE ON ownables
+  FOR EACH ROW WHEN ((OLD.id, OLD.project_id) IS DISTINCT FROM (NEW.id, NEW.project_id))
+  EXECUTE FUNCTION authz_write.copy_ownable_archive();
+CREATE TRIGGER grants_copy_archive BEFORE INSERT ON grants
+  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_grant_archive();
+CREATE TRIGGER grants_move_copy_archive BEFORE UPDATE ON grants
+  FOR EACH ROW WHEN (OLD.resource_id IS DISTINCT FROM NEW.resource_id)
+  EXECUTE FUNCTION authz_write.copy_grant_archive();
+CREATE TRIGGER resource_parents_inherit_archive AFTER INSERT ON resource_parents
+  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_parent_archive();
+CREATE TRIGGER resource_parents_update_inherit_archive AFTER UPDATE ON resource_parents
+  FOR EACH ROW WHEN ((OLD.id, OLD.parent_archived) IS DISTINCT FROM (NEW.id, NEW.parent_archived))
+  EXECUTE FUNCTION authz_write.inherit_parent_archive();
+CREATE TRIGGER ownables_inherit_archive AFTER INSERT ON ownables
+  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_project_archive();
+CREATE TRIGGER ownables_update_inherit_archive AFTER UPDATE ON ownables
+  FOR EACH ROW WHEN ((OLD.id, OLD.project_archived) IS DISTINCT FROM (NEW.id, NEW.project_archived))
+  EXECUTE FUNCTION authz_write.inherit_project_archive();
 
 CREATE FUNCTION authz_write.delete_ownable_resource() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -228,8 +342,11 @@ $$;
 
 CREATE TRIGGER team_parents_shape BEFORE INSERT OR UPDATE ON team_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_parent();
-CREATE TRIGGER resource_parents_shape BEFORE INSERT OR UPDATE ON resource_parents
+CREATE TRIGGER resource_parents_shape BEFORE INSERT ON resource_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_parent();
+CREATE TRIGGER resource_parents_update_shape BEFORE UPDATE ON resource_parents
+  FOR EACH ROW WHEN ((OLD.id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.parent_id))
+  EXECUTE FUNCTION authz_write.check_resource_parent();
 
 CREATE FUNCTION authz_write.check_resource_edge() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -246,10 +363,16 @@ BEGIN
 END
 $$;
 
-CREATE CONSTRAINT TRIGGER resources_parent_required AFTER INSERT OR UPDATE ON resources
+CREATE CONSTRAINT TRIGGER resources_parent_required AFTER INSERT ON resources
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
-CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE OR UPDATE ON resource_parents
+CREATE CONSTRAINT TRIGGER resources_update_parent_required AFTER UPDATE ON resources
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((OLD.id, OLD.kind) IS DISTINCT FROM (NEW.id, NEW.kind))
+  EXECUTE FUNCTION authz_write.check_resource_edge();
+CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE ON resource_parents
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
+CREATE CONSTRAINT TRIGGER resource_parents_update_required AFTER UPDATE ON resource_parents
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id)
+  EXECUTE FUNCTION authz_write.check_resource_edge();
 
 CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -429,7 +552,8 @@ CREATE TRIGGER team_members_update_audit AFTER UPDATE ON team_members
 CREATE TRIGGER grants_audit AFTER INSERT OR DELETE ON grants
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER grants_update_audit AFTER UPDATE ON grants
-  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
+  FOR EACH ROW WHEN (to_jsonb(OLD) - 'resource_archived' IS DISTINCT FROM to_jsonb(NEW) - 'resource_archived')
+  EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER share_links_audit AFTER INSERT OR DELETE ON share_links
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER share_links_update_audit AFTER UPDATE ON share_links
@@ -457,15 +581,18 @@ CREATE TRIGGER team_parents_update_audit AFTER UPDATE ON team_parents
 CREATE TRIGGER resource_parents_audit AFTER INSERT OR DELETE ON resource_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER resource_parents_update_audit AFTER UPDATE ON resource_parents
-  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
+  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['archived', 'parent_archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['archived', 'parent_archived'])
+  EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER ownables_audit AFTER INSERT OR DELETE ON ownables
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER ownables_update_audit AFTER UPDATE ON ownables
-  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
+  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['archived', 'project_archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['archived', 'project_archived'])
+  EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER resources_audit AFTER INSERT OR DELETE ON resources
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER resources_update_audit AFTER UPDATE ON resources
-  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
+  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['inherits_archive', 'archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['inherits_archive', 'archived'])
+  EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER apps_audit AFTER INSERT OR DELETE ON apps
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER apps_update_audit AFTER UPDATE ON apps
@@ -488,10 +615,17 @@ ALTER FUNCTION authz_write.check_grant_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_operator_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.insert_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.check_grantee_subtype() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_ownable_resource() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.copy_edge_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.copy_ownable_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.copy_grant_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.inherit_ownable_project_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.inherit_parent_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.inherit_project_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;

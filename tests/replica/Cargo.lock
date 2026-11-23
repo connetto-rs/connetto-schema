@@ -24,6 +24,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "archery"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ca55ee147b1926dbea904f50fe4902494e97bc742205abbbf10c709e43815f"
+dependencies = [
+ "triomphe",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -189,7 +198,7 @@ checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
 [[package]]
 name = "diesel"
 version = "2.4.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=main#fc7dc64457ed2dba404a0ae485410053a2d3c7ab"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -200,14 +209,22 @@ dependencies = [
  "pq-sys",
  "serde_json",
  "sqlite-wasm-rs",
- "sqlstate 0.2.0 (git+https://github.com/diesel-rs/diesel?branch=main)",
+ "sqlstate",
  "time",
+]
+
+[[package]]
+name = "diesel-dynamic-schema"
+version = "0.3.0"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+dependencies = [
+ "diesel",
 ]
 
 [[package]]
 name = "diesel_attribute_parser"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=main#fc7dc64457ed2dba404a0ae485410053a2d3c7ab"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -217,7 +234,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.4.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=main#fc7dc64457ed2dba404a0ae485410053a2d3c7ab"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
 dependencies = [
  "diesel_attribute_parser",
  "diesel_table_macro_syntax",
@@ -230,7 +247,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.4.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=main#fc7dc64457ed2dba404a0ae485410053a2d3c7ab"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
 dependencies = [
  "syn 3.0.10",
 ]
@@ -254,7 +271,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 [[package]]
 name = "dsl_auto_type"
 version = "0.3.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=main#fc7dc64457ed2dba404a0ae485410053a2d3c7ab"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
 dependencies = [
  "darling",
  "either",
@@ -533,16 +550,17 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "pg2sqlite"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#9541329a859400cb7fe591d9f641d8b151f62300"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#676117c3c4d7fac678d9667209498ef853849536"
 dependencies = [
  "diesel",
+ "diesel-dynamic-schema",
  "recursive",
  "sql-traits",
- "sql-values 0.5.1",
- "sql-values 0.6.0",
+ "sql-values",
  "sqlparser",
  "sqlparser-plpgsql",
- "sqlstate 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sqlstate",
+ "stacker",
  "thiserror",
 ]
 
@@ -690,6 +708,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpds"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e025feb26210bc196b908e72deb063b1b4000754304341cbc168a1e72c857ebc"
+dependencies = [
+ "archery",
+ "smallvec",
+]
+
+[[package]]
 name = "rsqlite-vfs"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -782,29 +810,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "smallvec"
+version = "1.16.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
+
+[[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#208f34c239e956bd587526c937251c7b7059396d"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#940e38519677f9113be056fa56cbab7b7c8b5923"
 dependencies = [
  "geometric-traits",
  "once_cell",
+ "recursive",
  "sha2",
- "sql-values 0.5.1",
+ "sql-values",
  "sqlparser",
  "sqlparser-canonicalize",
+ "sqlparser-expr-eval",
  "sqlparser-plpgsql",
+ "sqlstate",
+ "stacker",
  "thiserror",
  "unicode-normalization",
-]
-
-[[package]]
-name = "sql-values"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa63391be723434747b0c2ffc2e7270f4a7a476d083b55cdda961c4773d1d5e4"
-dependencies = [
- "jiff",
- "thiserror",
+ "yoke",
 ]
 
 [[package]]
@@ -829,7 +858,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#298b4bdf660d250a07aee620120bfb2d5c7c60ff"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#ba850faff0d7bde0193e4c8635fdf5155a801d97"
 dependencies = [
  "log",
  "recursive",
@@ -848,19 +877,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlparser-expr-eval"
+version = "0.1.0"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#46deb4392399a9658ac504ad39fd32556d4f9475"
+dependencies = [
+ "rpds",
+ "sql-values",
+ "sqlparser",
+]
+
+[[package]]
 name = "sqlparser-plpgsql"
 version = "0.1.0"
 source = "git+https://github.com/connetto-rs/sqlparser-plpgsql?branch=main#f5ea51d2d98a1ce18fc47f74185836165fcac612"
 dependencies = [
  "sqlparser",
- "sqlstate 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sqlstate",
  "thiserror",
 ]
 
 [[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#298b4bdf660d250a07aee620120bfb2d5c7c60ff"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#ba850faff0d7bde0193e4c8635fdf5155a801d97"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -870,13 +909,13 @@ dependencies = [
 [[package]]
 name = "sqlstate"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "858cea190fe7555971c35a5eb336858f1bf962a2bd7ceb8704fb1759b36af2cd"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
 
 [[package]]
-name = "sqlstate"
-version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=main#fc7dc64457ed2dba404a0ae485410053a2d3c7ab"
+name = "stable_deref_trait"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stable_try_trait_v2"
@@ -982,6 +1021,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
+name = "triomphe"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d15f4f5898bcfc5d8a8e45ed30b2f108d710c1a2e5489dbf80e078f707181bc"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1083,6 +1128,22 @@ checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "yoke"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "417ef3fcf6c300b7dbd25c85531a746931c02ad536f3cf4786ed1e88223340b3"
+dependencies = [
+ "stable_deref_trait",
+ "zerofrom",
+]
+
+[[package]]
+name = "zerofrom"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ec05a11813ea801ff6d75110ad09cd0824ddba17dfe17128ea0d5f68e6c5272"
 
 [[package]]
 name = "zmij"

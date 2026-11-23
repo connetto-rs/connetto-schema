@@ -171,6 +171,7 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
     // Every key into resources carries archived, and ON UPDATE CASCADE keeps the copy each archive policy reads equal to it.
     // Whoever deletes a resource administers it, and sharable_grants lets that admin delete every grant on it.
     // Deleting a folder or project needs organization admin, which also administers its parent as the edge policy asks.
+    // Deleting an ownable resource needs admin on it, which also reads its ownable.
     for (key_table, key) in [
         ("grants", "grants_organization_id_resource_id_resource_archived_fkey"),
         ("resource_parents", "resource_parents_organization_id_id_resource_kind_archived_fkey"),
@@ -181,6 +182,12 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         constrainer.allow_foreign_key("cascade_into_row_level_security_table", table(key_table), key);
         constrainer.allow_foreign_key("copied_column_through_superkey", table(key_table), key);
     }
+    // The key contains the primary key, so a duplicate tells nothing the primary key does not
+    constrainer.allow_index(
+        "unscoped_unique_constraint_on_row_level_security_table",
+        table("ownables"),
+        "ownables_organization_id_id_kind_key",
+    );
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
     constrainer.allow_table("unaudited_authority_table", table("grantees"));
     // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin

@@ -143,8 +143,9 @@ CREATE TABLE resource_parents (
   parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
   archived BOOLEAN NOT NULL DEFAULT FALSE,
   parent_archived BOOLEAN NOT NULL DEFAULT FALSE,
+  UNIQUE (organization_id, id, resource_kind),
   FOREIGN KEY (organization_id, id, resource_kind, archived) REFERENCES resources (organization_id, id, kind, archived)
-    ON UPDATE CASCADE ON DELETE CASCADE,
+    ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   FOREIGN KEY (organization_id, parent_id, parent_kind, parent_archived) REFERENCES resources (organization_id, id, kind, archived)
     ON UPDATE CASCADE
 );
@@ -162,8 +163,9 @@ CREATE TABLE ownables (
   archived BOOLEAN NOT NULL DEFAULT FALSE,
   project_archived BOOLEAN NOT NULL DEFAULT FALSE,
   UNIQUE (id, project_id),
+  UNIQUE (organization_id, id, kind),
   FOREIGN KEY (organization_id, id, kind, archived) REFERENCES resources (organization_id, id, kind, archived)
-    ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   FOREIGN KEY (organization_id, project_id, project_kind, project_archived) REFERENCES resources (organization_id, id, kind, archived)
     ON UPDATE CASCADE
 );
@@ -171,6 +173,14 @@ CREATE INDEX ON ownables (project_id);
 CREATE INDEX ON ownables (created_by_id);
 ALTER TABLE ownables ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ownables FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE resources
+  ADD COLUMN ownable_id UUID GENERATED ALWAYS AS (CASE WHEN kind = 'ownable' THEN id END) STORED,
+  ADD COLUMN edge_id UUID GENERATED ALWAYS AS (CASE WHEN kind IN ('folder', 'project') THEN id END) STORED,
+  ADD FOREIGN KEY (organization_id, ownable_id, kind) REFERENCES ownables (organization_id, id, kind) ON DELETE RESTRICT NOT DEFERRABLE,
+  ADD FOREIGN KEY (organization_id, edge_id, kind) REFERENCES resource_parents (organization_id, id, resource_kind) ON DELETE RESTRICT NOT DEFERRABLE;
+CREATE INDEX ON resources (ownable_id);
+CREATE INDEX ON resources (edge_id);
 
 CREATE TABLE grants (
   resource_id UUID NOT NULL,
@@ -678,7 +688,7 @@ CREATE POLICY resources_delete ON resources FOR DELETE TO app
     OR (kind IN ('folder', 'project') AND id = ANY (ARRAY(SELECT authz.resources_with('admin')))
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 
-GRANT SELECT, INSERT (id, organization_id, resource_kind, parent_id, parent_kind), UPDATE (parent_id, parent_kind), DELETE
+GRANT SELECT, INSERT (id, organization_id, resource_kind, parent_id, parent_kind), UPDATE (parent_id, parent_kind)
   ON resource_parents TO app;
 CREATE POLICY resource_parents_select ON resource_parents FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
@@ -687,10 +697,8 @@ CREATE POLICY resource_parents_insert ON resource_parents FOR INSERT TO app
 CREATE POLICY resource_parents_update ON resource_parents FOR UPDATE TO app
   USING (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
   WITH CHECK (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
-CREATE POLICY resource_parents_delete ON resource_parents FOR DELETE TO app
-  USING (ARRAY[organization_id, parent_id] <@ ARRAY(SELECT authz.resources_with('admin')));
 
-GRANT SELECT, INSERT (id, organization_id, project_id, created_by_id), UPDATE (project_id), DELETE ON ownables TO app;
+GRANT SELECT, INSERT (id, organization_id, project_id, created_by_id), UPDATE (project_id) ON ownables TO app;
 CREATE POLICY ownables_select ON ownables FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
 CREATE POLICY ownables_insert ON ownables FOR INSERT TO app
@@ -701,8 +709,6 @@ CREATE POLICY ownables_insert ON ownables FOR INSERT TO app
 CREATE POLICY ownables_update ON ownables FOR UPDATE TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
   WITH CHECK (project_id = ANY (ARRAY(SELECT authz.resources_with('writer'))));
-CREATE POLICY ownables_delete ON ownables FOR DELETE TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
 
 GRANT SELECT, INSERT (resource_id, organization_id, grantee_id, grantee_kind, role, expires_at), UPDATE (role, expires_at), DELETE
   ON grants TO app;
@@ -809,8 +815,6 @@ CREATE POLICY ownables_archived_insert ON ownables AS RESTRICTIVE FOR INSERT TO 
 CREATE POLICY ownables_archived_update ON ownables AS RESTRICTIVE FOR UPDATE TO app
   USING (NOT archived)
   WITH CHECK (NOT archived AND NOT project_archived);
-CREATE POLICY ownables_archived_delete ON ownables AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT archived);
 CREATE POLICY grants_archived_insert ON grants AS RESTRICTIVE FOR INSERT TO app
   WITH CHECK (NOT resource_archived);
 CREATE POLICY grants_archived_update ON grants AS RESTRICTIVE FOR UPDATE TO app
@@ -823,8 +827,6 @@ CREATE POLICY resource_parents_archived_insert ON resource_parents AS RESTRICTIV
 CREATE POLICY resource_parents_archived_update ON resource_parents AS RESTRICTIVE FOR UPDATE TO app
   USING (NOT archived)
   WITH CHECK (NOT archived AND NOT parent_archived);
-CREATE POLICY resource_parents_archived_delete ON resource_parents AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT archived);
 
 CREATE POLICY resources_blocked ON resources AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
@@ -905,6 +907,7 @@ GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT SELECT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
 GRANT UPDATE (archived_at, inherits_archive) ON resources TO authz_writer;
+GRANT UPDATE (archived) ON resource_parents, ownables TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
 
 CREATE FUNCTION authz_write.require_support_expiry(target_user UUID) RETURNS VOID
@@ -1041,8 +1044,8 @@ REVOKE EXECUTE ON FUNCTION authz.stamp_archived_at(), authz.stamp_revoked_at() F
 CREATE FUNCTION authz_write.copy_edge_archive() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  NEW.archived := coalesce((SELECT child.archived FROM public.resources child WHERE child.id = NEW.id), FALSE);
   NEW.parent_archived := coalesce((SELECT parent.archived FROM public.resources parent WHERE parent.id = NEW.parent_id), FALSE);
+  NEW.archived := coalesce((SELECT child.archived FROM public.resources child WHERE child.id = NEW.id), NEW.parent_archived);
   RETURN NEW;
 END
 $$;
@@ -1064,13 +1067,23 @@ BEGIN
 END
 $$;
 
-CREATE FUNCTION authz_write.inherit_ownable_project_archive() RETURNS TRIGGER
+CREATE FUNCTION authz_write.inherit_child_row_archive() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   UPDATE public.resources resource SET inherits_archive = ownable.project_archived
   FROM public.ownables ownable
   WHERE resource.id = NEW.id AND ownable.id = NEW.id
     AND resource.inherits_archive IS DISTINCT FROM ownable.project_archived;
+  UPDATE public.resources resource SET inherits_archive = edge.parent_archived
+  FROM public.resource_parents edge
+  WHERE resource.id = NEW.id AND edge.id = NEW.id
+    AND resource.inherits_archive IS DISTINCT FROM edge.parent_archived;
+  UPDATE public.ownables ownable SET archived = resource.archived
+  FROM public.resources resource
+  WHERE ownable.id = NEW.id AND resource.id = NEW.id AND ownable.archived IS DISTINCT FROM resource.archived;
+  UPDATE public.resource_parents edge SET archived = resource.archived
+  FROM public.resources resource
+  WHERE edge.id = NEW.id AND resource.id = NEW.id AND edge.archived IS DISTINCT FROM resource.archived;
   RETURN NULL;
 END
 $$;
@@ -1094,7 +1107,7 @@ END
 $$;
 
 CREATE TRIGGER resources_inherit_archive AFTER INSERT ON resources
-  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_ownable_project_archive();
+  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_child_row_archive();
 CREATE TRIGGER resource_parents_copy_archive BEFORE INSERT ON resource_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.copy_edge_archive();
 CREATE TRIGGER resource_parents_move_copy_archive BEFORE UPDATE ON resource_parents
@@ -1120,31 +1133,6 @@ CREATE TRIGGER ownables_inherit_archive AFTER INSERT ON ownables
 CREATE TRIGGER ownables_update_inherit_archive AFTER UPDATE ON ownables
   FOR EACH ROW WHEN ((OLD.id, OLD.project_archived) IS DISTINCT FROM (NEW.id, NEW.project_archived))
   EXECUTE FUNCTION authz_write.inherit_project_archive();
-
-CREATE FUNCTION authz_write.delete_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  DELETE FROM public.resources WHERE id = OLD.id AND kind = 'ownable';
-  RETURN NULL;
-END
-$$;
-
-CREATE TRIGGER ownables_resource_removed AFTER DELETE ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.delete_ownable_resource();
-
-CREATE FUNCTION authz_write.check_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.ownables ownable WHERE ownable.id = NEW.id) THEN
-    RAISE EXCEPTION 'resource % requires its ownable', NEW.id USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NULL;
-END
-$$;
-
-CREATE CONSTRAINT TRIGGER resources_ownable_required AFTER INSERT ON resources
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind = 'ownable')
-  EXECUTE FUNCTION authz_write.check_ownable_resource();
 
 CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -1233,32 +1221,6 @@ CREATE TRIGGER resource_parents_shape BEFORE INSERT ON resource_parents
 CREATE TRIGGER resource_parents_update_shape BEFORE UPDATE ON resource_parents
   FOR EACH ROW WHEN ((OLD.id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.parent_id))
   EXECUTE FUNCTION authz_write.check_resource_parent();
-
-CREATE FUNCTION authz_write.check_resource_edge() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-DECLARE
-  orphan UUID;
-BEGIN
-  SELECT resource.id INTO orphan FROM public.resources resource
-  WHERE resource.id IN (OLD.id, NEW.id) AND resource.kind IN ('folder', 'project')
-    AND NOT EXISTS (SELECT 1 FROM public.resource_parents edge WHERE edge.id = resource.id);
-  IF orphan IS NOT NULL THEN
-    RAISE EXCEPTION 'resource % requires a parent edge', orphan USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NULL;
-END
-$$;
-
-CREATE CONSTRAINT TRIGGER resources_parent_required AFTER INSERT ON resources
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
-CREATE CONSTRAINT TRIGGER resources_update_parent_required AFTER UPDATE ON resources
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((OLD.id, OLD.kind) IS DISTINCT FROM (NEW.id, NEW.kind))
-  EXECUTE FUNCTION authz_write.check_resource_edge();
-CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE ON resource_parents
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
-CREATE CONSTRAINT TRIGGER resource_parents_update_required AFTER UPDATE ON resource_parents
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id)
-  EXECUTE FUNCTION authz_write.check_resource_edge();
 
 CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -1504,18 +1466,15 @@ ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_grantee_subtype() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.check_ownable_resource() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.delete_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_edge_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_ownable_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_grant_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.inherit_ownable_project_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.inherit_child_row_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.inherit_parent_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.inherit_project_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.check_resource_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.has_active_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;

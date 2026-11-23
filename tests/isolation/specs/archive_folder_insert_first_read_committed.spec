@@ -10,11 +10,12 @@ setup
   VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'user', 'admin');
   COMMIT;
   BEGIN;
-  INSERT INTO resources (id, kind, organization_id) VALUES ('00000000-0000-0000-0000-000000000003', 'folder', '00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000004', 'project', '00000000-0000-0000-0000-000000000001');
   INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
   VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003', 'folder', '00000000-0000-0000-0000-000000000001', 'organization');
+  INSERT INTO resources (id, kind, organization_id) VALUES ('00000000-0000-0000-0000-000000000003', 'folder', '00000000-0000-0000-0000-000000000001');
   INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
   VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', 'project', '00000000-0000-0000-0000-000000000003', 'folder');
+  INSERT INTO resources (id, kind, organization_id) VALUES ('00000000-0000-0000-0000-000000000004', 'project', '00000000-0000-0000-0000-000000000001');
   COMMIT;
 }
 
@@ -28,9 +29,9 @@ session writer
 setup { SET statement_timeout = '20s'; SET app.user_id = '00000000-0000-0000-0000-000000000002'; SET ROLE app; }
 step writer_begin { BEGIN ISOLATION LEVEL READ COMMITTED; }
 step writer_folder {
-  INSERT INTO resources (id, kind, organization_id) VALUES ('00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000001');
   INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
   VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000003', 'folder');
+  INSERT INTO resources (id, kind, organization_id) VALUES ('00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000001');
 }
 step writer_finish { COMMIT; }
 

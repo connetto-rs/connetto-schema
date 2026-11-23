@@ -23,8 +23,9 @@ CREATE TABLE resource_parents (
   parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
   archived BOOLEAN NOT NULL DEFAULT FALSE,
   parent_archived BOOLEAN NOT NULL DEFAULT FALSE,
+  UNIQUE (organization_id, id, resource_kind),
   FOREIGN KEY (organization_id, id, resource_kind, archived) REFERENCES resources (organization_id, id, kind, archived)
-    ON UPDATE CASCADE ON DELETE CASCADE,
+    ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   FOREIGN KEY (organization_id, parent_id, parent_kind, parent_archived) REFERENCES resources (organization_id, id, kind, archived)
     ON UPDATE CASCADE
 );
@@ -42,8 +43,9 @@ CREATE TABLE ownables (
   archived BOOLEAN NOT NULL DEFAULT FALSE,
   project_archived BOOLEAN NOT NULL DEFAULT FALSE,
   UNIQUE (id, project_id),
+  UNIQUE (organization_id, id, kind),
   FOREIGN KEY (organization_id, id, kind, archived) REFERENCES resources (organization_id, id, kind, archived)
-    ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   FOREIGN KEY (organization_id, project_id, project_kind, project_archived) REFERENCES resources (organization_id, id, kind, archived)
     ON UPDATE CASCADE
 );
@@ -51,3 +53,11 @@ CREATE INDEX ON ownables (project_id);
 CREATE INDEX ON ownables (created_by_id);
 ALTER TABLE ownables ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ownables FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE resources
+  ADD COLUMN ownable_id UUID GENERATED ALWAYS AS (CASE WHEN kind = 'ownable' THEN id END) STORED,
+  ADD COLUMN edge_id UUID GENERATED ALWAYS AS (CASE WHEN kind IN ('folder', 'project') THEN id END) STORED,
+  ADD FOREIGN KEY (organization_id, ownable_id, kind) REFERENCES ownables (organization_id, id, kind) ON DELETE RESTRICT NOT DEFERRABLE,
+  ADD FOREIGN KEY (organization_id, edge_id, kind) REFERENCES resource_parents (organization_id, id, resource_kind) ON DELETE RESTRICT NOT DEFERRABLE;
+CREATE INDEX ON resources (ownable_id);
+CREATE INDEX ON resources (edge_id);

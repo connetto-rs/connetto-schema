@@ -828,12 +828,6 @@ CREATE POLICY resource_parents_archived_update ON resource_parents AS RESTRICTIV
   USING (NOT archived)
   WITH CHECK (NOT archived AND NOT parent_archived);
 
-CREATE POLICY resources_blocked ON resources AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
-CREATE POLICY ownables_blocked ON ownables AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
 CREATE POLICY grants_blocked ON grants AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
   WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
@@ -853,9 +847,6 @@ CREATE POLICY team_parents_blocked ON team_parents AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
   WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
 CREATE POLICY team_members_blocked ON team_members AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
-CREATE POLICY resource_parents_blocked ON resource_parents AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
   WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
 CREATE POLICY share_links_blocked ON share_links AS RESTRICTIVE FOR ALL TO app

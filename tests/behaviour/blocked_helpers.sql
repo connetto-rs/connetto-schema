@@ -2,10 +2,10 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(21);
+SELECT plan(25);
 
--- User 1 founds organization 1, where user 2 is a member, team admin, organization admin
--- and holder of a second pending invitation. User 3 founds organization 2 and shares
+-- User 1 founds organization 1 with folder 1, project 1 and ownable 1, where user 2 is a member,
+-- team admin, organization admin and holder of a second pending invitation. User 3 founds organization 2 and shares
 -- project 2 with organization 1. User 2 starts organization 3. Organizations 1 and 3
 -- then block user 2.
 SET ROLE identity_writer;
@@ -25,6 +25,8 @@ INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) 
   ('70000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002@example.com',
     now() + interval '1 day', '10000000-0000-7000-8000-000000000001');
 SELECT pg_temp.create_child_resource('40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001');
+SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000001', 'project', '40000000-0000-7000-8000-000000000001');
+SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
 INSERT INTO apps (id, organization_id, name) VALUES
   ('80000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', 'audit app');
 INSERT INTO app_installations (id, app_id, organization_id) VALUES
@@ -94,6 +96,17 @@ SELECT is_empty($query$SELECT 1 FROM resources WHERE id = '50000000-0000-7000-80
   'a blocked member loses resources other organizations shared with the blocking organization');
 SELECT is_empty($query$SELECT 1 FROM users WHERE id = '10000000-0000-7000-8000-000000000001'$query$,
   'a blocked member no longer reads the other members of the blocking organization');
+SELECT is_empty($query$SELECT 1 FROM resources WHERE organization_id = '20000000-0000-7000-8000-000000000001'
+  UNION ALL SELECT 1 FROM resource_parents WHERE organization_id = '20000000-0000-7000-8000-000000000001'
+  UNION ALL SELECT 1 FROM ownables WHERE organization_id = '20000000-0000-7000-8000-000000000001'$query$,
+  'a blocked admin reads no resource, edge or ownable of the blocking organization');
+SELECT throws_ok($statement$INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+  VALUES ('20000000-0000-7000-8000-000000000001', '40000000-0000-7000-8000-000000000002', 'folder', '40000000-0000-7000-8000-000000000001', 'folder')$statement$,
+  '42501', NULL, 'a blocked admin creates no folder in the blocking organization');
+SELECT is_empty($query$UPDATE resources SET archived_at = now() WHERE organization_id = '20000000-0000-7000-8000-000000000001' RETURNING id$query$,
+  'a blocked admin archives nothing in the blocking organization');
+SELECT is_empty($query$UPDATE ownables SET project_id = project_id WHERE organization_id = '20000000-0000-7000-8000-000000000001' RETURNING id$query$,
+  'a blocked admin moves no ownable of the blocking organization');
 DELETE FROM organization_blocks WHERE principal_id = '10000000-0000-7000-8000-000000000002';
 SELECT results_eq($query$SELECT organization_id FROM organization_blocks ORDER BY organization_id$query$,
   $values$VALUES ('20000000-0000-7000-8000-000000000001'::UUID), ('20000000-0000-7000-8000-000000000003')$values$,

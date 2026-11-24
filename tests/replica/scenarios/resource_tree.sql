@@ -34,7 +34,7 @@ INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, par
 INSERT INTO memberships (organization_id, user_id, state) VALUES (X'20000000000070008000000000000001', X'10000000000070008000000000000002', 'active');
 
 -- A folder without an edge is rejected.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 INSERT INTO resources (id, kind, organization_id) VALUES (X'40000000000070008000000000000099', 'folder', X'20000000000070008000000000000001');
 
 -- A project cannot parent a resource.
@@ -42,7 +42,7 @@ INSERT INTO resources (id, kind, organization_id) VALUES (X'40000000000070008000
 UPDATE resource_parents SET parent_id = X'50000000000070008000000000000002', parent_kind = 'project' WHERE id = X'40000000000070008000000000000001';
 
 -- A required edge cannot be removed.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 DELETE FROM resource_parents WHERE id = X'40000000000070008000000000000002';
 
 -- A resource cannot cross organizations. The key reaches into resources a policy hides,
@@ -51,7 +51,7 @@ DELETE FROM resource_parents WHERE id = X'40000000000070008000000000000002';
 UPDATE resource_parents SET parent_id = X'20000000000070008000000000000001' WHERE id = X'40000000000070008000000000000003';
 
 -- A resource cycle is rejected.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 UPDATE resource_parents SET parent_id = X'40000000000070008000000000000002', parent_kind = 'folder' WHERE id = X'40000000000070008000000000000001';
 
 -- A folder can move to the organization.
@@ -59,7 +59,7 @@ UPDATE resource_parents SET parent_id = X'40000000000070008000000000000002', par
 UPDATE resource_parents SET parent_id = X'20000000000070008000000000000001', parent_kind = 'organization' WHERE id = X'40000000000070008000000000000002';
 
 -- An ownable resource requires its ownable.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 INSERT INTO resources (id, kind, organization_id) VALUES (X'6000000000007000800000000000000a', 'ownable', X'20000000000070008000000000000001');
 
 --! client user=10000000-0000-7000-8000-000000000001 expect=ok

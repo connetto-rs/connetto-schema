@@ -13,6 +13,12 @@ pub use sqlparser;
 
 pub mod translation;
 
+/// The table whose `id` names a tenant.
+pub const TENANT_ROOT: &str = "organizations";
+
+/// Columns whose value, once set, is never cleared, each beside its table.
+pub const IRREVERSIBLE_COLUMNS: &[(&str, &str)] = &[("share_links", "revoked_at")];
+
 /// Tables whose rows belong to the organization named by their
 /// `organization_id`.
 pub const TENANT_TABLES: &[&str] = &[
@@ -84,7 +90,7 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
         .with_app_role("app")
         .with_app_role("identity_writer")
         .with_pooled(true)
-        .with_tenant_key("public", "organizations", "id")
+        .with_tenant_key("public", TENANT_ROOT, "id")
         .with_audit_function(
             "authz_write",
             "record_audit_event",
@@ -95,9 +101,11 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
             "record_platform_audit_event",
             [WriteEvent::Insert, WriteEvent::Update, WriteEvent::Delete],
         )
-        .with_irreversible_column("public", "share_links", "revoked_at")
         .without_self_asserted_sources()
         .without_binary_replication_tables();
+    for (table, column) in IRREVERSIBLE_COLUMNS {
+        deployment = deployment.with_irreversible_column("public", *table, *column);
+    }
     for table in TENANT_TABLES {
         deployment = deployment.with_tenant_key("public", *table, "organization_id");
     }

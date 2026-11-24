@@ -121,9 +121,14 @@ pub fn deployment() -> Deployment {
 
 /// The options a client's statement reverse translates under, which name no
 /// acting role because the server runs the statement as [`ACTING_ROLE`].
+///
+/// # Panics
+///
+/// Panics if the PostgreSQL server's major version cannot be read.
 #[must_use]
 pub fn query_options() -> Pg2SqliteOptions {
     let mut options = Pg2SqliteOptions::default()
+        .with_postgres_major(*server::POSTGRES_MAJOR)
         .with_uuid_representation(UuidRepresentation::Blob)
         .with_array_representation(ArrayRepresentation::Json)
         .with_rls_audit_table_name("rls_violations")

@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(1);
+SELECT plan(2);
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
@@ -23,6 +23,11 @@ SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
 SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
+
+SELECT throws_ok($statement$WITH removed AS (DELETE FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001' RETURNING id, organization_id)
+  INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id)
+  SELECT id, organization_id, 'b@example.com', now() + interval '1 day', '10000000-0000-7000-8000-000000000001' FROM removed$statement$,
+  CASE WHEN current_setting('server_version_num')::int >= 180000 THEN '23001' ELSE '23503' END, NULL, 'an accepted invitation cannot be re-created as pending');
 
 SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
 SELECT set_config('app.verified_email', 'b@example.com', true);

@@ -37,7 +37,7 @@ INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id, 
       X'10000000000070008000000000000001', X'10000000000070008000000000000002');
 
 -- accepted invitation stays while its member stays.
---! client user=10000000-0000-7000-8000-000000000001 expect=23503
+--! client user=10000000-0000-7000-8000-000000000001 expect=17:23503,18:23001
 DELETE FROM invitations WHERE id = X'70000000000070008000000000000001';
 
 -- accepted invitation can be deleted once its member leaves.

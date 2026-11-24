@@ -12,11 +12,11 @@ INSERT INTO memberships (organization_id, user_id, state) VALUES (X'200000000000
 INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role) VALUES (X'20000000000070008000000000000001', X'20000000000070008000000000000001', X'10000000000070008000000000000001', 'user', 'admin');
 
 -- The last admin cannot be deleted.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 DELETE FROM grants WHERE grantee_id = X'10000000000070008000000000000001';
 
 -- An organization without an admin is refused.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 INSERT INTO organizations (id, created_by_id) VALUES (X'20000000000070008000000000000005', X'10000000000070008000000000000001');
 
 -- The organization creator must be the caller.

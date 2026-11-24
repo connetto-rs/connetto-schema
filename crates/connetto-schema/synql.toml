@@ -332,7 +332,7 @@ $$;
 CREATE FUNCTION authz.blocking_organizations() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT block.organization_id FROM public.organization_blocks block
-  WHERE block.principal_id IN (authz.caller_id(), authz.acting_installation_id())
+  WHERE block.principal_id IN ((SELECT authz.caller_id()), (SELECT authz.acting_installation_id()))
     AND (block.expires_at IS NULL OR block.expires_at > now())
 $$;
 
@@ -340,7 +340,7 @@ CREATE FUNCTION authz.capped_kinds(min_role authz.role)
 RETURNS TABLE (organization_id UUID, kind authz.resource_kind)
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT permission.organization_id, permission.kind FROM public.installation_permissions permission
-  WHERE permission.installation_id = authz.acting_installation_id()
+  WHERE permission.installation_id = (SELECT authz.acting_installation_id())
     AND permission.max_role >= min_role
     AND NOT (permission.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
@@ -348,33 +348,33 @@ $$;
 CREATE FUNCTION authz.member_organizations() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT membership.organization_id FROM public.memberships membership
-  WHERE membership.user_id = authz.caller_id() AND membership.state = 'active'
-    AND (authz.acting_installation_id() IS NULL
+  WHERE membership.user_id = (SELECT authz.caller_id()) AND membership.state = 'active'
+    AND ((SELECT authz.acting_installation_id()) IS NULL
       OR (membership.organization_id, 'organization'::authz.resource_kind)
         IN (SELECT * FROM authz.capped_kinds('reader')))
     AND NOT (membership.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.caller_grantees() RETURNS SETOF UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE reached (id) AS (
     SELECT grantee.id FROM public.grantees grantee
-    WHERE grantee.id = authz.caller_id() AND grantee.kind IN ('user', 'installation')
+    WHERE grantee.id = (SELECT authz.caller_id()) AND grantee.kind IN ('user', 'installation')
     UNION
     SELECT grantee.id FROM public.grantees grantee WHERE grantee.kind = 'everyone'
     UNION
     SELECT grantee.id FROM public.grantees grantee
-    WHERE grantee.kind = 'signed_in' AND authz.caller_id() IS NOT NULL
+    WHERE grantee.kind = 'signed_in' AND (SELECT authz.caller_id()) IS NOT NULL
     UNION
     SELECT organization FROM authz.member_organizations() organization
     UNION
     SELECT member.team_id FROM public.team_members member
-    WHERE member.user_id = authz.caller_id() AND member.organization_id IN (SELECT authz.member_organizations())
+    WHERE member.user_id = (SELECT authz.caller_id()) AND member.organization_id IN (SELECT authz.member_organizations())
     UNION
     SELECT link.id FROM public.share_links link
-    WHERE link.id = ANY (authz.link_ids())
+    WHERE link.id = ANY (ARRAY(SELECT unnest(authz.link_ids())))
       AND link.revoked_at IS NULL AND (link.expires_at IS NULL OR link.expires_at > now())
-      AND (authz.acting_installation_id() IS NULL
+      AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (link.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
       AND NOT (link.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
     UNION
@@ -389,7 +389,7 @@ LANGUAGE sql STABLE STRICT SECURITY DEFINER ROWS 10 SET search_path = pg_catalog
   WHERE permission.grantee_id IN (SELECT authz.caller_grantees())
     AND permission.role >= min_role AND (permission.expires_at IS NULL OR permission.expires_at > now())
     AND NOT (permission.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
-    AND (authz.acting_installation_id() IS NULL
+    AND ((SELECT authz.acting_installation_id()) IS NULL
       OR (permission.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
     AND NOT EXISTS (
       SELECT 1 FROM public.memberships membership
@@ -420,7 +420,7 @@ CREATE FUNCTION authz.resources_with(min_role authz.role) RETURNS SETOF UUID
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id FROM public.resources resource
   WHERE resource.id IN (SELECT authz.reached_with(min_role))
-    AND (authz.acting_installation_id() IS NULL
+    AND ((SELECT authz.acting_installation_id()) IS NULL
       OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds(min_role)))
     AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
@@ -453,9 +453,9 @@ CREATE FUNCTION authz.administered_teams() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT member.team_id FROM public.team_members member
   JOIN public.memberships membership ON membership.organization_id = member.organization_id AND membership.user_id = member.user_id
-  WHERE member.user_id = authz.caller_id()
+  WHERE member.user_id = (SELECT authz.caller_id())
     AND member.team_role = 'admin' AND membership.state = 'active'
-    AND (authz.acting_installation_id() IS NULL
+    AND ((SELECT authz.acting_installation_id()) IS NULL
       OR (membership.organization_id, 'organization'::authz.resource_kind)
         IN (SELECT * FROM authz.capped_kinds('admin')))
     AND NOT (member.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
@@ -476,7 +476,7 @@ CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS SETOF UUID
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.organization_id FROM public.resources resource
   WHERE resource.kind = 'organization' AND resource.id IN (SELECT authz.granted_resources(min_role))
-    AND (authz.acting_installation_id() IS NULL
+    AND ((SELECT authz.acting_installation_id()) IS NULL
       OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds(min_role)))
     AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
@@ -484,16 +484,16 @@ $$;
 CREATE FUNCTION authz.founded_organizations() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT organization.id FROM public.organizations organization
-  WHERE organization.created_by_id = authz.caller_id() AND organization.founded_at IS NULL
-    AND authz.acting_installation_id() IS NULL
+  WHERE organization.created_by_id = (SELECT authz.caller_id()) AND organization.founded_at IS NULL
+    AND (SELECT authz.acting_installation_id()) IS NULL
     AND NOT (organization.id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
 CREATE FUNCTION authz.pending_invitations() RETURNS TABLE (organization_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT invitation.organization_id, invitation.id FROM public.invitations invitation
-  WHERE invitation.email = authz.verified_email() AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
-    AND (authz.acting_installation_id() IS NULL
+  WHERE invitation.email = (SELECT authz.verified_email()) AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
+    AND ((SELECT authz.acting_installation_id()) IS NULL
       OR (invitation.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
     AND NOT (invitation.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
@@ -503,7 +503,7 @@ CREATE FUNCTION authz.is_platform_operator() RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.platform_operators operator
-    WHERE operator.id = authz.caller_id() AND authz.acting_installation_id() IS NULL
+    WHERE operator.id = (SELECT authz.caller_id()) AND (SELECT authz.acting_installation_id()) IS NULL
   )
 $$;
 

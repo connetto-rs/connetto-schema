@@ -64,11 +64,10 @@ CREATE TABLE team_members (
   organization_id UUID NOT NULL,
   user_id UUID NOT NULL,
   team_role authz.team_role NOT NULL,
-  PRIMARY KEY (team_id, user_id),
+  PRIMARY KEY (organization_id, team_id, user_id),
   FOREIGN KEY (organization_id, team_id) REFERENCES teams (organization_id, id),
   FOREIGN KEY (organization_id, user_id) REFERENCES memberships (organization_id, user_id) ON DELETE CASCADE
 );
 CREATE INDEX ON team_members (user_id, organization_id);
-CREATE INDEX ON team_members (organization_id);
 ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_members FORCE ROW LEVEL SECURITY;

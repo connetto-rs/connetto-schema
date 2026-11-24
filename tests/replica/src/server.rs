@@ -1,7 +1,7 @@
 //! The PostgreSQL side, one database per scenario cloned from the template
 //! `tests/run.sh` builds.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::LazyLock};
 
 use connetto_schema_source::root;
 use diesel::{
@@ -22,8 +22,24 @@ diesel::define_sql_function! {
     fn set_config(setting_name: Text, new_value: Text, is_local: Bool) -> Text;
 }
 
+diesel::define_sql_function! {
+    /// Reads a PostgreSQL session setting.
+    fn current_setting(setting_name: Text) -> Text;
+}
+
 /// The database every scenario database is cloned from.
 const TEMPLATE: &str = "schema_template";
+
+/// The connected server's major version, shared by translation and scenarios.
+pub(crate) static POSTGRES_MAJOR: LazyLock<u16> = LazyLock::new(|| {
+    let base = std::env::var("REPLICA_DATABASE_URL").expect("REPLICA_DATABASE_URL");
+    let mut connection = connect(&format!("{base}/postgres")).expect("PostgreSQL connection");
+    let version: String = diesel::select(current_setting("server_version_num"))
+        .get_result(&mut connection)
+        .expect("PostgreSQL server_version_num");
+    let version: u32 = version.parse().expect("numeric server_version_num");
+    u16::try_from(version / 10_000).expect("PostgreSQL major fits u16")
+});
 
 /// One scenario's PostgreSQL database, holding the `tests/fixture.sql`
 /// helpers in its session.

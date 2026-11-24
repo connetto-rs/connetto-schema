@@ -15,6 +15,8 @@
 //!   rows the replica may show otherwise than PostgreSQL until the server's
 //!   rows arrive.
 //!
+//! Both `expect=` and `upload=` accept per-major codes such as `17:23503,18:23001`, with an entry required for the connected server's major.
+//!
 //! A client writes a `uuid` as the 16-byte blob the replica stores, such as
 //! `X'10000000000070008000000000000001'`, the form a bound value takes. A
 //! header names it in its text form, as the session setting holds it.
@@ -152,8 +154,13 @@ impl Scenario {
             if let Some(rest) = line.strip_prefix("--!") {
                 if let Some((header_line, header_text)) = header.take() {
                     steps.push(
-                        parse_step(header_line, header_text, std::mem::take(&mut body))
-                            .map_err(|reason| malformed(header_line, reason))?,
+                        parse_step(
+                            header_line,
+                            header_text,
+                            std::mem::take(&mut body),
+                            *crate::server::POSTGRES_MAJOR,
+                        )
+                        .map_err(|reason| malformed(header_line, reason))?,
                     );
                 }
                 header = Some((number, rest.trim()));
@@ -310,7 +317,7 @@ impl Scenario {
 }
 
 /// Parses one step from its header text after `--!` and its body.
-fn parse_step(line: usize, header: &str, sql: String) -> Result<Step, String> {
+fn parse_step(line: usize, header: &str, sql: String, postgres_major: u16) -> Result<Step, String> {
     let mut words = header.split_whitespace();
     match words.next() {
         Some("server") => {
@@ -329,11 +336,19 @@ fn parse_step(line: usize, header: &str, sql: String) -> Result<Step, String> {
                     .ok_or_else(|| format!("`{word}` is no key=value"))?;
                 let outcome = match (key, value) {
                     ("expect", "ok") => Outcome::Accepted,
-                    ("expect", sqlstate) => Outcome::Refused(sqlstate.to_owned()),
+                    ("expect", sqlstate) => Outcome::Refused(
+                        expected_sqlstate(sqlstate, postgres_major)
+                            .map_err(|error| error.to_string())?
+                            .to_owned(),
+                    ),
                     ("upload", "ok") => {
                         return Err("`upload=` names the SQLSTATE the server refuses with".into());
                     }
-                    ("upload", sqlstate) => Outcome::RefusedAtUpload(sqlstate.to_owned()),
+                    ("upload", sqlstate) => Outcome::RefusedAtUpload(
+                        expected_sqlstate(sqlstate, postgres_major)
+                            .map_err(|error| error.to_string())?
+                            .to_owned(),
+                    ),
                     ("diverges", tables) => {
                         diverges.extend(tables.split(',').map(str::to_owned));
                         continue;
@@ -456,4 +471,88 @@ fn compare<'a>(
         }
     }
     Ok(None)
+}
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum ExpectationError {
+    #[error("malformed per-major SQLSTATE entry `{0}`")]
+    MalformedEntry(String),
+    #[error("no expected SQLSTATE for PostgreSQL major {0}")]
+    MissingMajor(u16),
+}
+
+/// Selects the literal SQLSTATE for the connected PostgreSQL major.
+fn expected_sqlstate(value: &str, postgres_major: u16) -> Result<&str, ExpectationError> {
+    if !value.contains([':', ',']) {
+        return Ok(value);
+    }
+    let mut selected = None;
+    for entry in value.split(',') {
+        let malformed = || ExpectationError::MalformedEntry(entry.to_owned());
+        let (major, sqlstate) = entry.split_once(':').ok_or_else(malformed)?;
+        let major: u16 = major.parse().map_err(|_| malformed())?;
+        if sqlstate.len() != 5
+            || !sqlstate
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+        {
+            return Err(malformed());
+        }
+        if major == postgres_major {
+            selected = Some(sqlstate);
+        }
+    }
+    selected.ok_or(ExpectationError::MissingMajor(postgres_major))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expected_sqlstate;
+
+    #[test]
+    fn matching_major_selects_its_sqlstate() {
+        assert_eq!(expected_sqlstate("17:23503,18:23001", 17), Ok("23503"));
+        assert_eq!(expected_sqlstate("17:23503,18:23001", 18), Ok("23001"));
+    }
+
+    #[test]
+    fn missing_major_names_the_major() {
+        let error = expected_sqlstate("17:23503,18:23001", 19).unwrap_err();
+        assert!(error.to_string().contains("19"), "{error}");
+    }
+
+    #[test]
+    fn malformed_major_entry_is_rejected() {
+        for value in ["17:23503,broken", "major:23001", "17:23503,18:bad"] {
+            assert!(expected_sqlstate(value, 17).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn single_literal_is_unchanged() {
+        assert_eq!(expected_sqlstate("23503", 17), Ok("23503"));
+        assert_eq!(expected_sqlstate("23001", 18), Ok("23001"));
+    }
+
+    #[test]
+    fn headers_resolve_both_expectation_forms() {
+        for (key, expected) in [
+            ("expect", super::Outcome::Refused("23503".into())),
+            ("upload", super::Outcome::RefusedAtUpload("23503".into())),
+        ] {
+            let header = format!("client {key}=17:23503,18:23001");
+            let super::Step::Client { expect, .. } =
+                super::parse_step(40, &header, String::new(), 17).unwrap()
+            else {
+                panic!("client step");
+            };
+            assert_eq!(expect, expected);
+        }
+        let super::Step::Client { expect, .. } =
+            super::parse_step(40, "client expect=ok", String::new(), 17).unwrap()
+        else {
+            panic!("client step");
+        };
+        assert_eq!(expect, super::Outcome::Accepted);
+    }
 }

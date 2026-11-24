@@ -550,10 +550,10 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "pg2sqlite"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#676117c3c4d7fac678d9667209498ef853849536"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#7ec186414d21503004798299d1f48f79cd67cfe9"
 dependencies = [
  "diesel",
- "diesel-dynamic-schema",
+ "pg2sqlite-runtime",
  "recursive",
  "sql-traits",
  "sql-values",
@@ -562,6 +562,16 @@ dependencies = [
  "sqlstate",
  "stacker",
  "thiserror",
+]
+
+[[package]]
+name = "pg2sqlite-runtime"
+version = "0.1.0"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#7ec186414d21503004798299d1f48f79cd67cfe9"
+dependencies = [
+ "diesel",
+ "diesel-dynamic-schema",
+ "sql-values",
 ]
 
 [[package]]
@@ -818,7 +828,7 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#940e38519677f9113be056fa56cbab7b7c8b5923"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#710656f838abf04f3b0557a66c5a046133af274f"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -879,7 +889,7 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#46deb4392399a9658ac504ad39fd32556d4f9475"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#1ec72234469ef6b0ab3ca24c871574409f6fd054"
 dependencies = [
  "rpds",
  "sql-values",

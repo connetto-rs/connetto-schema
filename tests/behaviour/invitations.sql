@@ -31,7 +31,7 @@ SET ROLE app;
 SELECT throws_ok($statement$INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id, accepted_by_id) VALUES
     ('70000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', 'forged@example.com', now() + interval '1 day',
       '10000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002')$statement$, '42501', NULL, 'invitation acceptance cannot be forged');
-SELECT throws_ok($statement$DELETE FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001'; SET CONSTRAINTS ALL IMMEDIATE$statement$, '23503', NULL, 'accepted invitation stays while its member stays');
+SELECT throws_ok($statement$DELETE FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001'$statement$, CASE WHEN current_setting('server_version_num')::int >= 180000 THEN '23001' ELSE '23503' END, NULL, 'accepted invitation stays while its member stays');
 DELETE FROM memberships WHERE organization_id = '20000000-0000-7000-8000-000000000001' AND user_id = '10000000-0000-7000-8000-000000000002';
     DELETE FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001';
 SELECT is_empty($query$SELECT 1 FROM invitations WHERE id = '70000000-0000-7000-8000-000000000001'$query$, 'accepted invitation can be deleted once its member leaves');

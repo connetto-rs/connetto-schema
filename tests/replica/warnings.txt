@@ -125,6 +125,7 @@ dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothi
 dropped ALTER FUNCTION: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
+dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped REVOKE: SQLite has no role or privilege model, so there is nothing for the statement to act on.
 dropped GRANT: SQLite has no role or privilege model, so there is nothing for the statement to act on.

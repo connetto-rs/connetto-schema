@@ -10,12 +10,13 @@ use diesel::{
     Connection, RunQueryDsl, SqliteConnection,
     connection::SimpleConnection,
     result::{DatabaseErrorKind, Error as DieselError},
-    sql_types::{Binary, Bool, Nullable, Text},
+    sql_types::{Binary, Bool, Integer, Nullable, Text},
 };
 use pg2sqlite::prelude::postgres_error;
 
 use crate::{
     ColumnKind, HarnessError, Principal, TRANSLATION, TableShape, Verdict, ViewRows,
+    case_fold_functions,
     error::Context,
     jsonb_functions,
     model::{Line, cells, quote},
@@ -42,8 +43,11 @@ diesel::define_sql_function! {
     fn app_verified_email() -> Nullable<Text>;
 }
 diesel::define_sql_function! {
-    /// Answers whether the write running is a delivery from the server.
-    fn replica_write_exempt() -> Bool;
+    /// Answers whether the statement running is a delivery from the server.
+    fn replica_rls_exempt() -> Bool;
+}
+diesel::define_sql_function! {
+    fn replica_server_derived_write(delta: Integer) -> Integer;
 }
 diesel::define_sql_function! {
     /// Answers a random version 4 UUID as its 16 bytes, the translation of
@@ -73,6 +77,9 @@ impl Replica {
         jsonb_functions()
             .register(&mut connection)
             .context(|| "registering the jsonb functions".into())?;
+        case_fold_functions()
+            .register(&mut connection)
+            .context(|| "registering the case fold functions".into())?;
         register_settings(&mut connection, principal)
             .context(|| "registering the setting functions".into())?;
         // The schema's own seed rows are the server's writes, so the script runs exempt.
@@ -80,14 +87,23 @@ impl Replica {
         let flag = Arc::clone(&exempt);
         // The flag is set and read on the thread running the statement, so
         // program order alone orders the two.
-        replica_write_exempt_utils::register_nondeterministic_impl(&mut connection, move || {
+        replica_rls_exempt_utils::register_nondeterministic_impl(&mut connection, move || {
             flag.load(Ordering::Relaxed)
         })
-        .context(|| "registering the write exemption".into())?;
+        .context(|| "registering the row-level security exemption".into())?;
+        replica_server_derived_write_utils::register_nondeterministic_impl(
+            &mut connection,
+            |delta: i32| delta,
+        )
+        .context(|| "registering the server-derived write function".into())?;
         uuid_utils::register_nondeterministic_impl(&mut connection, || {
             ::uuid::Uuid::new_v4().as_bytes().to_vec()
         })
         .context(|| "registering the random UUID function".into())?;
+        TRANSLATION
+            .script
+            .register_functions(&mut connection)
+            .context(|| "registering the helper functions".into())?;
         // A replica is a fresh database, so every file runs from scratch.
         for statement in TRANSLATION.script.iter() {
             let text = statement.to_string();
@@ -216,8 +232,8 @@ impl Replica {
     }
 
     /// Replaces every stored row with `delivered`, each table's rows as a JSON
-    /// array of arrays in the order of its shape's columns, with the write
-    /// guards exempt as a delivery from the server is.
+    /// array of arrays in the order of its shape's columns, with row-level
+    /// security lifted as for a delivery from the server.
     ///
     /// Answers SQLite's message when it refuses the rows.
     ///

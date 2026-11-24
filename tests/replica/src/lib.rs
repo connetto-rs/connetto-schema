@@ -28,8 +28,8 @@ pub use model::{
     ViewRows,
 };
 use pg2sqlite::prelude::{
-    ArrayRepresentation, JsonbFunctions, Pg2Sqlite, Pg2SqliteOptions, Script,
-    SessionVariableMapping, TableManifestEntry, UuidRepresentation,
+    ArrayRepresentation, CaseFoldFunctions, JsonbFunctions, Pg2Sqlite, Pg2SqliteOptions, Script,
+    SessionVariableMapping, TableManifestEntry, TranslationWarning, UuidRepresentation,
 };
 pub use replica::Replica;
 pub use scenario::{Failure, Outcome, Scenario, Step};
@@ -50,9 +50,9 @@ pub const SETTINGS: [(&str, &str); 5] = [
 /// The role every request runs as.
 pub const ACTING_ROLE: &str = "app";
 
-/// The function a replica registers to exempt the rows the server delivers
-/// from its write guards.
-pub const WRITE_EXEMPTION_FUNCTION: &str = "replica_write_exempt";
+/// The function a replica registers to lift row-level security, reads and
+/// writes alike, from the rows the server delivers, as for the table owner.
+pub const RLS_EXEMPTION_FUNCTION: &str = "replica_rls_exempt";
 
 /// The tables only the server writes, whose rows a replica receives and never
 /// derives from its own writes.
@@ -68,6 +68,13 @@ pub fn setting_function(setting: &str) -> String {
 #[must_use]
 pub fn jsonb_functions() -> JsonbFunctions {
     JsonbFunctions::new("pg_jsonb", "pg_jsonb_text", "pg_jsonb")
+}
+
+/// The functions the replica's `lower` and `upper` call, folding as the
+/// server's glibc `en_US.utf8` collation does.
+#[must_use]
+pub fn case_fold_functions() -> CaseFoldFunctions {
+    CaseFoldFunctions::new("pg_lower", "pg_upper")
 }
 
 /// The deployment the replica serves, declaring what each of [`SETTINGS`]
@@ -120,9 +127,10 @@ pub fn query_options() -> Pg2SqliteOptions {
         .with_uuid_representation(UuidRepresentation::Blob)
         .with_array_representation(ArrayRepresentation::Json)
         .with_rls_audit_table_name("rls_violations")
-        .with_write_exemption_function(WRITE_EXEMPTION_FUNCTION)
+        .with_rls_exemption_function(RLS_EXEMPTION_FUNCTION)
         .with_jsonb_functions(jsonb_functions())
-        .with_server_derived_writes_omitted()
+        .with_case_fold_functions(case_fold_functions())
+        .with_server_derived_write_function("replica_server_derived_write")
         .with_deployment(deployment());
     for (_, setting) in SETTINGS {
         options = options.with_session_variable(SessionVariableMapping::new(
@@ -147,7 +155,7 @@ pub struct Translation {
     /// The replica's statements.
     pub script: Script,
     /// Every warning, as the translation reports it.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<TranslationWarning>,
     /// Each table the replica holds, with the view a client reads it through.
     pub manifest: Vec<TableManifestEntry>,
 }
@@ -175,7 +183,7 @@ pub static TRANSLATION: LazyLock<Translation> = LazyLock::new(|| {
         schema,
         replica_options,
         query_options,
-        warnings: report.warnings.iter().map(ToString::to_string).collect(),
+        warnings: report.warnings,
         script: report.script,
         manifest,
     }

@@ -2,7 +2,7 @@ CREATE TABLE organizations (
   id UUID PRIMARY KEY,
   kind authz.grantee_kind NOT NULL DEFAULT 'organization' CHECK (kind = 'organization'),
   created_by_id UUID NOT NULL REFERENCES users (id),
-  -- Set by the first admin grant on the organization. Its creator takes the founding membership and grant only while it is NULL.
+  -- The founder membership writes the admin grant that stamps `founded_at`.
   founded_at TIMESTAMPTZ,
   FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
 );

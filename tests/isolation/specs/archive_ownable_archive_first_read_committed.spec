@@ -6,8 +6,6 @@ setup
   INSERT INTO organizations (id, created_by_id) VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
   INSERT INTO resources (id, kind, organization_id) VALUES ('00000000-0000-0000-0000-000000000001', 'organization', '00000000-0000-0000-0000-000000000001');
   INSERT INTO memberships (organization_id, user_id, state) VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'active');
-  INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role)
-  VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'user', 'admin');
   COMMIT;
   BEGIN;
   INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)

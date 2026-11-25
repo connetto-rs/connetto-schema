@@ -18,6 +18,7 @@ GRANT UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT SELECT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
+GRANT INSERT (organization_id, resource_id, grantee_id, grantee_kind, role) ON grants TO authz_writer;
 GRANT UPDATE (archived_at, inherits_archive) ON resources TO authz_writer;
 GRANT UPDATE (archived) ON resource_parents, ownables TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
@@ -443,6 +444,21 @@ CREATE TRIGGER grants_founded AFTER INSERT ON grants
   FOR EACH ROW WHEN (NEW.resource_id = NEW.organization_id AND NEW.role = 'admin')
   EXECUTE FUNCTION authz_write.stamp_founded_at();
 
+CREATE FUNCTION authz_write.grant_founder_admin() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  INSERT INTO public.grants (organization_id, resource_id, grantee_id, grantee_kind, role)
+    SELECT organization.id, organization.id, NEW.user_id, 'user', 'admin'
+    FROM public.organizations organization
+    WHERE organization.id = NEW.organization_id AND organization.created_by_id = NEW.user_id
+      AND organization.founded_at IS NULL;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER memberships_founder_admin AFTER INSERT ON memberships
+  FOR EACH ROW WHEN (NEW.invitation_id IS NULL) EXECUTE FUNCTION authz_write.grant_founder_admin();
+
 CREATE FUNCTION authz_write.delete_membership_grants() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -603,6 +619,7 @@ ALTER FUNCTION authz_write.accept_invitation() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_founded() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_organization_identifier() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.stamp_founded_at() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.grant_founder_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.record_audit_event() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.record_platform_audit_event() OWNER TO authz_writer;
 

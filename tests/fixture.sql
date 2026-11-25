@@ -7,8 +7,6 @@ CREATE FUNCTION pg_temp.found_organization(organization UUID) RETURNS VOID LANGU
   INSERT INTO public.organizations (id, created_by_id) VALUES (organization, authz.caller_id());
   INSERT INTO public.resources (id, kind, organization_id) VALUES (organization, 'organization', organization);
   INSERT INTO public.memberships (organization_id, user_id, state) VALUES (organization, authz.caller_id(), 'active');
-  INSERT INTO public.grants (organization_id, resource_id, grantee_id, grantee_kind, role)
-    VALUES (organization, organization, authz.caller_id(), 'user', 'admin');
 $$;
 CREATE FUNCTION pg_temp.create_child_team(team UUID, parent UUID) RETURNS VOID LANGUAGE sql AS $$
   INSERT INTO public.teams (id, organization_id)

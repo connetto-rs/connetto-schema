@@ -168,9 +168,7 @@ CREATE POLICY grants_select ON grants FOR SELECT TO app
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY grants_insert ON grants FOR INSERT TO app
   WITH CHECK (grantee_id IN (SELECT grantee.id FROM grantees grantee)
-    AND ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share)
-      OR (resource_id = organization_id AND grantee_id = (SELECT authz.caller_id()) AND grantee_kind = 'user' AND role = 'admin'
-        AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL)));
+    AND (resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
 CREATE POLICY grants_update ON grants FOR UPDATE TO app
   USING ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share))
   WITH CHECK ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));

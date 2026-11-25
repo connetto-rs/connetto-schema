@@ -12,7 +12,7 @@ INSERT INTO memberships (organization_id, user_id, state) VALUES (X'200000000000
 INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES (X'20000000000070008000000000000001', X'20000000000070008000000000000001', X'10000000000070008000000000000001', 'user', 'admin');
 
 -- Twenty-one resource levels are rejected.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) VALUES (X'20000000000070008000000000000001', X'd0000000000070008000000000000001', 'folder', X'20000000000070008000000000000001', 'organization');
 INSERT INTO resources (id, kind, organization_id) VALUES (X'd0000000000070008000000000000001', 'folder', X'20000000000070008000000000000001');
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) VALUES (X'20000000000070008000000000000001', X'd0000000000070008000000000000002', 'folder', X'd0000000000070008000000000000001', 'folder');

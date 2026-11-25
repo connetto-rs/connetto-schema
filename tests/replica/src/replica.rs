@@ -10,7 +10,7 @@ use diesel::{
     Connection, RunQueryDsl, SqliteConnection,
     connection::SimpleConnection,
     result::{DatabaseErrorKind, Error as DieselError},
-    sql_types::{Binary, Bool, Nullable, Text},
+    sql_types::{Binary, Bool, Integer, Nullable, Text},
 };
 use pg2sqlite::prelude::postgres_error;
 
@@ -45,6 +45,9 @@ diesel::define_sql_function! {
 diesel::define_sql_function! {
     /// Answers whether the statement running is a delivery from the server.
     fn replica_rls_exempt() -> Bool;
+}
+diesel::define_sql_function! {
+    fn replica_server_derived_write(delta: Integer) -> Integer;
 }
 diesel::define_sql_function! {
     /// Answers a random version 4 UUID as its 16 bytes, the translation of
@@ -88,6 +91,11 @@ impl Replica {
             flag.load(Ordering::Relaxed)
         })
         .context(|| "registering the row-level security exemption".into())?;
+        replica_server_derived_write_utils::register_nondeterministic_impl(
+            &mut connection,
+            |delta: i32| delta,
+        )
+        .context(|| "registering the server-derived write function".into())?;
         uuid_utils::register_nondeterministic_impl(&mut connection, || {
             ::uuid::Uuid::new_v4().as_bytes().to_vec()
         })

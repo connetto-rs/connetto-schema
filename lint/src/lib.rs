@@ -189,16 +189,11 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         "team_members_insert",
     );
     // Each insert policy pins the column beside the key to an organization or project the caller already sees
-    for (index_table, index) in [
-        ("invitations", "invitations_organization_id_id_key"),
-        ("ownables", "ownables_id_project_id_key"),
-    ] {
-        constrainer.allow_index(
-            "unscoped_unique_constraint_on_row_level_security_table",
-            table(index_table),
-            index,
-        );
-    }
+    constrainer.allow_index(
+        "unscoped_unique_constraint_on_row_level_security_table",
+        table("invitations"),
+        "invitations_organization_id_id_key",
+    );
     // Only the caller's own unaccepted invitation passes memberships_insert, so the policy refuses before the key is checked
     constrainer.allow_index(
         "unscoped_unique_constraint_on_row_level_security_table",

@@ -43,7 +43,7 @@ jobs:
           RUSTDOCFLAGS: -D warnings
       - name: crates/ holds what synql writes
         run: |
-          cargo run --locked --release
+          cargo run --locked
           git status --porcelain -- ../crates
           git diff -- ../crates
           test -z "$(git status --porcelain -- ../crates)"

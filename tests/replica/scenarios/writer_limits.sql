@@ -50,7 +50,8 @@ UPDATE ownables SET project_id = X'50000000000070008000000000000001' WHERE id = 
 INSERT INTO ownables (id, organization_id, project_id, created_by_id) VALUES (X'60000000000070008000000000000002', X'20000000000070008000000000000001', X'50000000000070008000000000000002', X'10000000000070008000000000000002');
 INSERT INTO resources (id, kind, organization_id, writers_can_share) VALUES (X'60000000000070008000000000000002', 'ownable', X'20000000000070008000000000000001', TRUE);
 
---! client user=10000000-0000-7000-8000-000000000001 expect=ok
+-- Only the server carries the archive into the copies of the rows below it.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=resources,resource_parents,ownables,grants
 UPDATE resources SET archived_at = '2126-01-01 00:00:00.000000+00:00' WHERE id = X'40000000000070008000000000000001';
 
 -- A writer cannot restore.

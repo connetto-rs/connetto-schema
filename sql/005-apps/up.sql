@@ -9,11 +9,11 @@ ALTER TABLE apps FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE app_installations (
   id UUID PRIMARY KEY,
-  kind authz.grantee_kind GENERATED ALWAYS AS ('installation'::authz.grantee_kind) STORED NOT NULL,
+  kind authz.grantee_kind NOT NULL DEFAULT 'installation' CHECK (kind = 'installation'),
   app_id UUID NOT NULL REFERENCES apps (id),
   organization_id UUID NOT NULL REFERENCES organizations (id),
   UNIQUE (organization_id, id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) DEFERRABLE INITIALLY DEFERRED
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
 );
 CREATE INDEX ON app_installations (app_id);
 ALTER TABLE app_installations ENABLE ROW LEVEL SECURITY;

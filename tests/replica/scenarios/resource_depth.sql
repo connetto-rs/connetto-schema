@@ -57,7 +57,8 @@ INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, par
 INSERT INTO resources (id, kind, organization_id) VALUES (X'd0000000000070008000000000000021', 'folder', X'20000000000070008000000000000001');
 
 -- Twenty resource levels exclude the organization when inheriting its archive.
---! client user=10000000-0000-7000-8000-000000000001 expect=ok
+-- Only the server carries the archive into the copies of the rows below it.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=resources,resource_parents,ownables,grants
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) VALUES (X'20000000000070008000000000000001', X'd0000000000070008000000000000001', 'folder', X'20000000000070008000000000000001', 'organization');
 INSERT INTO resources (id, kind, organization_id) VALUES (X'd0000000000070008000000000000001', 'folder', X'20000000000070008000000000000001');
 INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) VALUES (X'20000000000070008000000000000001', X'd0000000000070008000000000000002', 'folder', X'd0000000000070008000000000000001', 'folder');

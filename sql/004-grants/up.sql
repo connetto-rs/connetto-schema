@@ -5,8 +5,10 @@ CREATE TABLE grants (
   grantee_kind authz.grantee_kind NOT NULL,
   role authz.role NOT NULL,
   expires_at TIMESTAMPTZ,
+  resource_archived BOOLEAN NOT NULL DEFAULT FALSE,
   PRIMARY KEY (resource_id, grantee_id),
-  FOREIGN KEY (organization_id, resource_id) REFERENCES resources (organization_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (organization_id, resource_id, resource_archived) REFERENCES resources (organization_id, id, archived)
+    ON UPDATE CASCADE ON DELETE CASCADE,
   FOREIGN KEY (grantee_id, grantee_kind) REFERENCES grantees (id, kind) ON DELETE CASCADE,
   CHECK (grantee_kind NOT IN ('everyone', 'signed_in', 'link') OR role < 'admin')
 );
@@ -16,13 +18,13 @@ ALTER TABLE grants FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE share_links (
   id UUID PRIMARY KEY,
-  kind authz.grantee_kind GENERATED ALWAYS AS ('link'::authz.grantee_kind) STORED NOT NULL,
+  kind authz.grantee_kind NOT NULL DEFAULT 'link' CHECK (kind = 'link'),
   organization_id UUID NOT NULL REFERENCES organizations (id),
   token_hash BYTEA NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
   expires_at TIMESTAMPTZ,
   revoked_at TIMESTAMPTZ,
   created_by_id UUID NOT NULL REFERENCES users (id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) DEFERRABLE INITIALLY DEFERRED
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
 );
 CREATE INDEX ON share_links (organization_id);
 CREATE INDEX ON share_links (created_by_id);

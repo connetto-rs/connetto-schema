@@ -101,6 +101,8 @@ fn replica_deployment() -> Deployment {
         deployment = deployment.with_irreversible_column("main", physical(table), *column);
     }
     for entry in &TRANSLATION.manifest {
+        // Connetto applies the server's changesets to every replica table.
+        deployment = deployment.with_subscribed_table("main", physical(&entry.logical));
         if !SERVER_DERIVED_TABLES.contains(&entry.logical.as_str()) {
             deployment = deployment.with_client_written_table("main", physical(&entry.logical));
         }

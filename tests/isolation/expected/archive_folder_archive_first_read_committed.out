@@ -1,0 +1,30 @@
+Parsed test spec with 3 sessions
+
+starting permutation: archiver_begin archiver_archive writer_begin writer_folder archiver_finish writer_finish stale_copies
+step archiver_begin: BEGIN ISOLATION LEVEL READ COMMITTED;
+step archiver_archive: UPDATE resources SET archived_at = now() WHERE id = '00000000-0000-0000-0000-000000000003';
+step writer_begin: BEGIN ISOLATION LEVEL READ COMMITTED;
+step writer_folder: 
+  INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+  VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000003', 'folder');
+  INSERT INTO resources (id, kind, organization_id) VALUES ('00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000001');
+ <waiting ...>
+step archiver_finish: COMMIT;
+step writer_folder: <... completed>
+ERROR:  insert or update on table "resource_parents" violates foreign key constraint "resource_parents_organization_id_parent_id_parent_kind_par_fkey"
+step writer_finish: COMMIT;
+step stale_copies: 
+  SELECT
+    (SELECT count(*) FROM resource_parents edge JOIN resources child ON child.id = edge.id JOIN resources parent ON parent.id = edge.parent_id
+      WHERE edge.archived IS DISTINCT FROM child.archived OR edge.parent_archived IS DISTINCT FROM parent.archived
+        OR child.inherits_archive IS DISTINCT FROM edge.parent_archived) AS stale_edges,
+    (SELECT count(*) FROM ownables ownable JOIN resources own ON own.id = ownable.id JOIN resources project ON project.id = ownable.project_id
+      WHERE ownable.archived IS DISTINCT FROM own.archived OR ownable.project_archived IS DISTINCT FROM project.archived
+        OR own.inherits_archive IS DISTINCT FROM ownable.project_archived) AS stale_ownables,
+    (SELECT count(*) FROM resources WHERE archived) AS archived_resources;
+
+stale_edges|stale_ownables|archived_resources
+-----------+--------------+------------------
+          0|             0|                 2
+(1 row)
+

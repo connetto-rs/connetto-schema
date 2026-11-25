@@ -924,7 +924,7 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#4c054147b99cb6e48acff2ba5b18bd5ba4df55ec"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#9cbf89091fb26ee76f2cf382d6090937bf4a13b6"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -954,7 +954,7 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#d4929dd1d6140dd3569f2600f3e54b1bfb274c2c"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#a4427f8711795a0827ea31a9f52c8ae8c326e673"
 dependencies = [
  "heck",
  "inflection-rs",
@@ -1000,7 +1000,7 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#1ec72234469ef6b0ab3ca24c871574409f6fd054"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#bf8d41991d71c5947fe61a91b0f6341b577a4275"
 dependencies = [
  "rpds",
  "sql-values",
@@ -1010,7 +1010,7 @@ dependencies = [
 [[package]]
 name = "sqlparser-plpgsql"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-plpgsql?branch=main#f5ea51d2d98a1ce18fc47f74185836165fcac612"
+source = "git+https://github.com/connetto-rs/sqlparser-plpgsql?branch=main#f5debf1c49fe774f3bbfa1b51dc0951c8e24b43a"
 dependencies = [
  "sqlparser",
  "sqlstate",

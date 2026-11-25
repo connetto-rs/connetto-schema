@@ -28,12 +28,14 @@ INSERT INTO resources (id, kind, organization_id) VALUES (X'60000000000070008000
 UPDATE ownables SET project_id = X'50000000000070008000000000000002' WHERE id = X'60000000000070008000000000000001';
 
 -- Archived projects cannot enable sharing.
---! client user=10000000-0000-7000-8000-000000000001 expect=ok
+-- Only the server carries the archive into the copies of the rows below it.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=resources,resource_parents,ownables,grants
 UPDATE resources SET archived_at = '2000-01-01 00:00:00.000000+00:00' WHERE id = X'40000000000070008000000000000001';
 UPDATE resources SET writers_can_share = TRUE WHERE id = X'50000000000070008000000000000001';
 
 -- Restored projects can enable sharing.
---! client user=10000000-0000-7000-8000-000000000001 expect=ok
+-- Only the server clears the archive from the copies of the rows below it.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=resources,resource_parents,ownables,grants
 UPDATE resources SET archived_at = NULL WHERE id = X'40000000000070008000000000000001';
 UPDATE resources SET writers_can_share = TRUE WHERE id = X'50000000000070008000000000000001';
 

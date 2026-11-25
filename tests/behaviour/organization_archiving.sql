@@ -21,7 +21,7 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 
 UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001';
-SELECT is((SELECT authz.is_archived('60000000-0000-7000-8000-000000000001')), true, 'organization archive reaches nested ownable');
+SELECT is((SELECT archived FROM resources WHERE id = '60000000-0000-7000-8000-000000000001'), true, 'organization archive reaches nested ownable');
 
 SELECT is_empty($query$UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001' RETURNING *$query$, 'organization archive blocks ownable writes');
 

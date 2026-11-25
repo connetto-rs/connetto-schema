@@ -23,8 +23,8 @@ INSERT INTO grantees (id, kind) VALUES
 
 CREATE TABLE users (
   id UUID PRIMARY KEY,
-  kind authz.grantee_kind GENERATED ALWAYS AS ('user'::authz.grantee_kind) STORED NOT NULL,
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) DEFERRABLE INITIALLY DEFERRED
+  kind authz.grantee_kind NOT NULL DEFAULT 'user' CHECK (kind = 'user'),
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
 );
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users FORCE ROW LEVEL SECURITY;

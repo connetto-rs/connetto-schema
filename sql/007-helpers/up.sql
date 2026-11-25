@@ -250,4 +250,6 @@ ALTER FUNCTION authz.is_platform_operator() OWNER TO authz_owner;
 ALTER FUNCTION authz.refuse_repeatable_read() OWNER TO authz_owner;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz FROM PUBLIC, app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA authz TO app;
+-- The walk returns resources before the installation's kind cap applies, so only definer helpers call it.
+REVOKE EXECUTE ON FUNCTION authz.containers_with(authz.role), authz.reached_with(authz.role) FROM app;
 GRANT EXECUTE ON FUNCTION authz.refuse_repeatable_read() TO PUBLIC;

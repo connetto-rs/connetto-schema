@@ -39,7 +39,7 @@ INSERT INTO share_links (id, organization_id, token_hash, created_by_id) VALUES 
 INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES (X'40000000000070008000000000000001', X'20000000000070008000000000000001', X'b0000000000070008000000000000001', 'everyone', 'admin');
 
 -- An empty team cannot replace the last user admin.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 DELETE FROM grants WHERE resource_id = X'20000000000070008000000000000001' AND grantee_id = X'10000000000070008000000000000001';
 
 -- A `team` block is rejected.

@@ -55,7 +55,7 @@ DELETE FROM resource_parents WHERE id = X'40000000000070008000000000000002';
 UPDATE resource_parents SET parent_id = X'20000000000070008000000000000001' WHERE id = X'40000000000070008000000000000003';
 
 -- A resource cycle is rejected.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 UPDATE resource_parents SET parent_id = X'40000000000070008000000000000002', parent_kind = 'folder' WHERE id = X'40000000000070008000000000000001';
 
 -- A folder can move to the organization.

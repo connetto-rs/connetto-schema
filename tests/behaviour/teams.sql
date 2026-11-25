@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(5);
+SELECT plan(6);
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
@@ -39,6 +39,9 @@ SET CONSTRAINTS ALL DEFERRED;
 SELECT results_eq($query$SELECT parent_id FROM team_parents WHERE id = '30000000-0000-7000-8000-00000000000a' AND parent_id = '30000000-0000-7000-8000-000000000009'$query$, $expected$VALUES ('30000000-0000-7000-8000-000000000009'::uuid)$expected$, 'team admin creates a child team');
 
 SELECT throws_ok($statement$INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-00000000000b', '20000000-0000-7000-8000-000000000001'); SET CONSTRAINTS ALL IMMEDIATE$statement$, '23514', 'team 30000000-0000-7000-8000-00000000000b requires an edge to a team the caller administers', 'team admin cannot create a root team');
+
+RESET ROLE;
+SELECT lives_ok($statement$INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-00000000000c', '20000000-0000-7000-8000-000000000001'); DELETE FROM teams WHERE id = '30000000-0000-7000-8000-00000000000c'; SET CONSTRAINTS ALL IMMEDIATE$statement$, 'team inserted and deleted in one transaction needs no edge');
 
 SET CONSTRAINTS ALL IMMEDIATE;
 RESET ROLE;

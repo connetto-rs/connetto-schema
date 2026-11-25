@@ -1094,6 +1094,9 @@ CREATE TRIGGER resource_parents_shape BEFORE INSERT OR UPDATE ON resource_parent
 CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM ONLY public.teams team WHERE team.id = NEW.id) THEN
+    RETURN NULL;
+  END IF;
   IF NOT NEW.organization_id IN (SELECT authz.resources_with('admin')) AND NOT EXISTS (
     SELECT 1 FROM public.team_parents edge
     WHERE edge.id = NEW.id AND edge.parent_id IN (SELECT authz.administered_teams())
@@ -1159,6 +1162,9 @@ CREATE CONSTRAINT TRIGGER memberships_last_admin AFTER UPDATE OR DELETE ON membe
 CREATE FUNCTION authz_write.check_founded() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM ONLY public.organizations organization WHERE organization.id = NEW.id) THEN
+    RETURN NULL;
+  END IF;
   IF NOT authz_write.has_active_admin(NEW.id) THEN
     RAISE EXCEPTION 'organization % requires an active admin', NEW.id USING ERRCODE = 'check_violation';
   END IF;

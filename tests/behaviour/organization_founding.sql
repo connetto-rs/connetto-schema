@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(6);
+SELECT plan(7);
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
@@ -28,6 +28,8 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 SELECT isnt((SELECT founded_at FROM organizations WHERE id = '20000000-0000-7000-8000-000000000006'), NULL::timestamptz, 'the founding grant marks the organization founded');
 
+RESET ROLE;
+SELECT lives_ok($statement$INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000007', '10000000-0000-7000-8000-000000000001'); DELETE FROM organizations WHERE id = '20000000-0000-7000-8000-000000000007'; SET CONSTRAINTS ALL IMMEDIATE$statement$, 'organization inserted and deleted in one transaction needs no admin');
 
 SET CONSTRAINTS ALL IMMEDIATE;
 RESET ROLE;

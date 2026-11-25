@@ -29,7 +29,7 @@ pub use model::{
 };
 use pg2sqlite::prelude::{
     ArrayRepresentation, CaseFoldFunctions, JsonbFunctions, Pg2Sqlite, Pg2SqliteOptions, Script,
-    SessionVariableMapping, TableManifestEntry, UuidRepresentation,
+    SessionVariableMapping, TableManifestEntry, TranslationWarning, UuidRepresentation,
 };
 pub use replica::Replica;
 pub use scenario::{Failure, Outcome, Scenario, Step};
@@ -135,7 +135,7 @@ pub fn query_options() -> Pg2SqliteOptions {
         .with_rls_exemption_function(RLS_EXEMPTION_FUNCTION)
         .with_jsonb_functions(jsonb_functions())
         .with_case_fold_functions(case_fold_functions())
-        .with_server_derived_writes_omitted()
+        .with_server_derived_write_function("replica_server_derived_write")
         .with_deployment(deployment());
     for (_, setting) in SETTINGS {
         options = options.with_session_variable(SessionVariableMapping::new(
@@ -160,7 +160,7 @@ pub struct Translation {
     /// The replica's statements.
     pub script: Script,
     /// Every warning, as the translation reports it.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<TranslationWarning>,
     /// Each table the replica holds, with the view a client reads it through.
     pub manifest: Vec<TableManifestEntry>,
 }
@@ -169,7 +169,7 @@ pub struct Translation {
 ///
 /// # Panics
 ///
-/// Panics if pg2sqlite refuses the source.
+/// Panics if the server version cannot be read or pg2sqlite refuses the source.
 pub static TRANSLATION: LazyLock<Translation> = LazyLock::new(|| {
     let translator = Pg2Sqlite::default()
         .sql(&connetto_schema_source::schema().expect("schema source"))
@@ -188,7 +188,7 @@ pub static TRANSLATION: LazyLock<Translation> = LazyLock::new(|| {
         schema,
         replica_options,
         query_options,
-        warnings: report.warnings.iter().map(ToString::to_string).collect(),
+        warnings: report.warnings,
         script: report.script,
         manifest,
     }

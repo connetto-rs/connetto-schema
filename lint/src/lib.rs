@@ -243,4 +243,6 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         "exposed_definer_over_protected_table",
         table("caller_grantees").with_schema("authz", false),
     );
+    // teams_parent_required runs at commit, after the team's parent edge exists, and no policy sees that later row when the team is inserted
+    constrainer.allow_table("authorization_in_trigger", table("teams"));
 }

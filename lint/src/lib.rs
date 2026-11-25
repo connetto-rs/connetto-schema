@@ -186,12 +186,6 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         table("ownables"),
         "ownables_organization_id_id_kind_fkey",
     );
-    // The key contains the primary key, so a duplicate tells nothing the primary key does not
-    constrainer.allow_index(
-        "unscoped_unique_constraint_on_row_level_security_table",
-        table("ownables"),
-        "ownables_organization_id_id_kind_key",
-    );
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
     constrainer.allow_table("unaudited_authority_table", table("grantees"));
     // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin
@@ -201,16 +195,11 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         "team_members_insert",
     );
     // Each insert policy pins the column beside the key to an organization or project the caller already sees
-    for (index_table, index) in [
-        ("invitations", "invitations_organization_id_id_key"),
-        ("ownables", "ownables_id_project_id_key"),
-    ] {
-        constrainer.allow_index(
-            "unscoped_unique_constraint_on_row_level_security_table",
-            table(index_table),
-            index,
-        );
-    }
+    constrainer.allow_index(
+        "unscoped_unique_constraint_on_row_level_security_table",
+        table("invitations"),
+        "invitations_organization_id_id_key",
+    );
     // Only the caller's own unaccepted invitation passes memberships_insert, so the policy refuses before the key is checked
     constrainer.allow_index(
         "unscoped_unique_constraint_on_row_level_security_table",

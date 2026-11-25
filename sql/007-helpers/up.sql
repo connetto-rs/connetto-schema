@@ -3,10 +3,17 @@ ALTER DEFAULT PRIVILEGES FOR ROLE authz_owner REVOKE EXECUTE ON FUNCTIONS FROM P
 
 GRANT SELECT ON grantees, platform_operators, organizations, memberships, invitations, teams, team_members,
   share_links, resources, grants, organization_blocks, installation_permissions TO authz_owner;
+GRANT SELECT ON namespaces TO authz_owner;
 
 CREATE FUNCTION authz.caller_id() RETURNS UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('app.user_id', true), '')::uuid
+$$;
+
+CREATE FUNCTION authz.caller_namespace() RETURNS UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT namespace.id FROM public.namespaces namespace
+  WHERE namespace.user_id = (SELECT authz.caller_id())
 $$;
 
 CREATE FUNCTION authz.acting_installation_id() RETURNS UUID
@@ -227,6 +234,7 @@ END
 $$;
 
 ALTER FUNCTION authz.caller_id() OWNER TO authz_owner;
+ALTER FUNCTION authz.caller_namespace() OWNER TO authz_owner;
 ALTER FUNCTION authz.acting_installation_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.original_actor_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.link_ids() OWNER TO authz_owner;

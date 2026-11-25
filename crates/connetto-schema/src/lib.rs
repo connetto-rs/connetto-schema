@@ -1237,6 +1237,68 @@ pub mod memberships_model {
 #[cfg(feature = "models")]
 pub use memberships_model::*;
 #[cfg(feature = "models")]
+pub mod namespaces_model {
+    #[derive(Copy, Clone, Debug, Hash, Ord, PartialOrd, Eq, PartialEq)]
+    #[derive(::serde::Serialize, ::serde::Deserialize)]
+    #[derive(
+        ::diesel::Queryable,
+        ::diesel::Selectable,
+        ::diesel::Identifiable,
+        ::diesel::Associations,
+        ::diesel_builders::prelude::TableModel
+    )]
+    #[table_model(error = ::validation_errors::ValidationError)]
+    #[table_model(record_error = ::validation_errors::ValidationError)]
+    #[diesel(belongs_to(connetto_schema::User, foreign_key = user_id))]
+    #[table_model(foreign_key((user_id), (::connetto_schema::users::id)))]
+    #[diesel(table_name = namespaces)]
+    pub struct Namespace {
+        #[table_model(default = ::rosetta_uuid::Uuid::new_v4())]
+        #[infallible]
+        #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
+        id: ::rosetta_uuid::Uuid,
+        #[infallible]
+        #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
+        user_id: Option<::rosetta_uuid::Uuid>,
+        #[table_model(default = false)]
+        #[infallible]
+        reserved: bool,
+    }
+    impl ::diesel_builders::ValidateRecord<namespaces::table>
+    for <namespaces::table as ::diesel_builders::TableExt>::NewValues {
+        #[inline]
+        fn validate_record(&self) -> Result<(), ::validation_errors::ValidationError> {
+            use diesel::Column;
+            if let (Some(reserved), Some(user_id)) = (
+                <Self as diesel_builders::MayGetColumn<
+                    namespaces::reserved,
+                >>::may_get_column_ref(self),
+                <Self as diesel_builders::MayGetColumn<
+                    namespaces::user_id,
+                >>::may_get_column_ref(self),
+            ) && !(!*reserved || (*user_id).is_none())
+            {
+                return Err(
+                    ::validation_errors::ValidationError::check_violated(
+                        <crate::namespaces::table as ::diesel_builders::TableExt>::TABLE_NAME,
+                        &[
+                            crate::namespaces::reserved::NAME,
+                            crate::namespaces::user_id::NAME,
+                        ],
+                        "NOT reserved OR user_id IS NULL",
+                    ),
+                );
+            }
+            Ok(())
+        }
+    }
+    ::diesel::allow_tables_to_appear_in_same_query!(
+        namespaces, ::connetto_schema::users
+    );
+}
+#[cfg(feature = "models")]
+pub use namespaces_model::*;
+#[cfg(feature = "models")]
 pub mod organization_blocks_model {
     #[derive(Copy, Clone, Debug, Hash, Ord, PartialOrd, Eq, PartialEq)]
     #[derive(::serde::Serialize, ::serde::Deserialize)]

@@ -37,6 +37,18 @@ CREATE TABLE users (
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users FORCE ROW LEVEL SECURITY;
 
+CREATE TABLE namespaces (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users (id) ON DELETE SET NULL,
+  reserved BOOLEAN NOT NULL DEFAULT false,
+  CHECK (NOT reserved OR user_id IS NULL)
+);
+CREATE UNIQUE INDEX ON namespaces (user_id);
+CREATE UNIQUE INDEX ON namespaces (reserved) WHERE reserved;
+ALTER TABLE namespaces ENABLE ROW LEVEL SECURITY;
+ALTER TABLE namespaces FORCE ROW LEVEL SECURITY;
+INSERT INTO namespaces (id, reserved) VALUES ('bc3cf2e2-768c-4af9-bf86-65f23378a212', true);
+
 CREATE TABLE platform_operators (
   id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE
 );
@@ -261,10 +273,17 @@ ALTER DEFAULT PRIVILEGES FOR ROLE authz_owner REVOKE EXECUTE ON FUNCTIONS FROM P
 
 GRANT SELECT ON grantees, platform_operators, organizations, memberships, invitations, teams, team_members,
   share_links, resources, grants, organization_blocks, installation_permissions TO authz_owner;
+GRANT SELECT ON namespaces TO authz_owner;
 
 CREATE FUNCTION authz.caller_id() RETURNS UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('app.user_id', true), '')::uuid
+$$;
+
+CREATE FUNCTION authz.caller_namespace() RETURNS UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT namespace.id FROM public.namespaces namespace
+  WHERE namespace.user_id = (SELECT authz.caller_id())
 $$;
 
 CREATE FUNCTION authz.acting_installation_id() RETURNS UUID
@@ -485,6 +504,7 @@ END
 $$;
 
 ALTER FUNCTION authz.caller_id() OWNER TO authz_owner;
+ALTER FUNCTION authz.caller_namespace() OWNER TO authz_owner;
 ALTER FUNCTION authz.acting_installation_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.original_actor_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.link_ids() OWNER TO authz_owner;
@@ -516,6 +536,11 @@ REVOKE EXECUTE ON FUNCTION authz.containers_with(authz.role), authz.reached_with
 GRANT EXECUTE ON FUNCTION authz.refuse_repeatable_read() TO PUBLIC;
 
 REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_members, resources, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
+REVOKE ALL ON namespaces FROM PUBLIC, app, identity_writer;
+
+GRANT SELECT ON namespaces TO app;
+CREATE POLICY namespaces_select ON namespaces FOR SELECT TO app
+  USING (user_id = (SELECT authz.caller_id()) OR reserved);
 
 -- The replica runs authz.caller_grantees() itself, so the caller's own grantee rows reach it.
 -- Every other grantee is readable with the user, team, organization, link or installation it stands for.
@@ -828,6 +853,7 @@ GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grant
   authz.caller_id(), authz.acting_installation_id(), authz.original_actor_id(), authz.max_tree_depth() TO authz_writer;
 
 GRANT INSERT, DELETE ON grantees TO authz_writer;
+GRANT INSERT ON namespaces TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
 GRANT UPDATE (kind) ON users TO authz_writer;
 GRANT SELECT ON organizations, teams, resources, grants TO authz_writer;
@@ -901,6 +927,17 @@ BEGIN
   RETURN NULL;
 END
 $$;
+
+CREATE FUNCTION authz_write.insert_namespace() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  INSERT INTO public.namespaces (user_id) VALUES (NEW.id);
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER users_namespace AFTER INSERT ON users
+  FOR EACH ROW EXECUTE FUNCTION authz_write.insert_namespace();
 
 CREATE TRIGGER users_grantee BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER users_grantee_removed AFTER DELETE ON users FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
@@ -1323,6 +1360,10 @@ CREATE TRIGGER users_audit AFTER INSERT OR DELETE ON users
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
 CREATE TRIGGER users_update_audit AFTER UPDATE ON users
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER namespaces_audit AFTER INSERT OR DELETE ON namespaces
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER namespaces_update_audit AFTER UPDATE ON namespaces
+  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_platform_audit_event();
 CREATE TRIGGER platform_operators_audit AFTER INSERT OR DELETE ON platform_operators
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
 CREATE TRIGGER platform_operators_update_audit AFTER UPDATE ON platform_operators
@@ -1337,6 +1378,7 @@ ALTER FUNCTION authz_write.check_grant_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_operator_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.insert_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.insert_namespace() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_grantee_subtype() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
@@ -1365,5 +1407,5 @@ single_crate = true
 
 [[crates]]
 name = "connetto-schema"
-tables = ["app_installations", "apps", "audit_events", "grantees", "grants", "installation_permissions", "invitations", "memberships", "organization_blocks", "organizations", "platform_audit_events", "platform_operators", "resources", "share_links", "team_members", "teams", "users"]
+tables = ["app_installations", "apps", "audit_events", "grantees", "grants", "installation_permissions", "invitations", "memberships", "namespaces", "organization_blocks", "organizations", "platform_audit_events", "platform_operators", "resources", "share_links", "team_members", "teams", "users"]
 types = ["authz.audit_operation", "authz.grantee_kind", "authz.membership_state", "authz.resource_kind", "authz.role", "authz.team_role"]

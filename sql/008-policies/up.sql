@@ -1,4 +1,9 @@
 REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_members, resources, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
+REVOKE ALL ON namespaces FROM PUBLIC, app, identity_writer;
+
+GRANT SELECT ON namespaces TO app;
+CREATE POLICY namespaces_select ON namespaces FOR SELECT TO app
+  USING (user_id = (SELECT authz.caller_id()) OR reserved);
 
 -- The replica runs authz.caller_grantees() itself, so the caller's own grantee rows reach it.
 -- Every other grantee is readable with the user, team, organization, link or installation it stands for.

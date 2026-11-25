@@ -23,6 +23,8 @@ pub const ATTRIBUTE_COLUMNS: &[(&str, &str)] = &[
     ("grants", "organization_id"),
     ("grants", "resource_id"),
     ("grants", "resource_archived"),
+    ("invitations", "accepted_by_id"),
+    ("invitations", "expires_at"),
     ("memberships", "invitation_id"),
     ("memberships", "state"),
     ("ownables", "archived"),

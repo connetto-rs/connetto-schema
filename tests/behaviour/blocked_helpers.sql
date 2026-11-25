@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(25);
+SELECT plan(23);
 
 -- User 1 founds organization 1 with folder 1, project 1 and ownable 1, where user 2 is a member,
 -- team admin, organization admin and holder of a second pending invitation. User 3 founds organization 2 and shares
@@ -74,13 +74,8 @@ SELECT is_empty($query$SELECT 1 FROM authz.team_admin_organizations() organizati
   'a blocked team admin administers teams in no blocking organization');
 SELECT is_empty($query$SELECT 1 FROM authz.granted_resources('reader') resource WHERE resource = '20000000-0000-7000-8000-000000000001'$query$,
   'a blocked member is granted no resource of the blocking organization');
-SELECT is_empty($query$SELECT 1 FROM authz.containers_with('reader') resource
-  WHERE resource IN ('20000000-0000-7000-8000-000000000001', '40000000-0000-7000-8000-000000000001')$query$,
-  'a blocked member reaches no container of the blocking organization');
-SELECT is_empty($query$SELECT 1 FROM authz.reached_with('reader') resource WHERE resource = '40000000-0000-7000-8000-000000000001'$query$,
-  'a blocked member reaches no resource of the blocking organization');
 SELECT is_empty($query$SELECT 1 FROM authz.resources_with('reader') resource
-  WHERE resource IN ('20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000002')$query$,
+  WHERE resource IN ('20000000-0000-7000-8000-000000000001', '40000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000002')$query$,
   'a blocked member holds no role through the blocking organization');
 SELECT is_empty($query$SELECT 1 FROM authz.sharable_grants() share WHERE share.resource_id = '20000000-0000-7000-8000-000000000001'$query$,
   'a blocked admin shares nothing in the blocking organization');

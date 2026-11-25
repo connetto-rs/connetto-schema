@@ -124,8 +124,8 @@ CREATE TABLE resources (
   organization_id UUID NOT NULL REFERENCES organizations (id),
   archived_at TIMESTAMPTZ,
   writers_can_share BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (id, kind),
   UNIQUE (organization_id, id),
+  UNIQUE (organization_id, id, kind),
   CHECK ((kind = 'organization') = (id = organization_id))
 );
 CREATE INDEX ON resources (id) WHERE archived_at IS NOT NULL;
@@ -138,10 +138,8 @@ CREATE TABLE resource_parents (
   resource_kind authz.resource_kind NOT NULL CHECK (resource_kind IN ('folder', 'project')),
   parent_id UUID NOT NULL CHECK (parent_id <> id),
   parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
-  FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (organization_id, parent_id) REFERENCES resources (organization_id, id),
-  FOREIGN KEY (id, resource_kind) REFERENCES resources (id, kind) ON DELETE CASCADE,
-  FOREIGN KEY (parent_id, parent_kind) REFERENCES resources (id, kind)
+  FOREIGN KEY (organization_id, id, resource_kind) REFERENCES resources (organization_id, id, kind) ON DELETE CASCADE,
+  FOREIGN KEY (organization_id, parent_id, parent_kind) REFERENCES resources (organization_id, id, kind)
 );
 CREATE INDEX ON resource_parents (parent_id);
 ALTER TABLE resource_parents ENABLE ROW LEVEL SECURITY;
@@ -155,10 +153,8 @@ CREATE TABLE ownables (
   project_kind authz.resource_kind GENERATED ALWAYS AS ('project'::authz.resource_kind) STORED NOT NULL,
   created_by_id UUID NOT NULL REFERENCES users (id),
   UNIQUE (id, project_id),
-  FOREIGN KEY (id, kind) REFERENCES resources (id, kind) DEFERRABLE INITIALLY DEFERRED,
-  FOREIGN KEY (organization_id, id) REFERENCES resources (organization_id, id) DEFERRABLE INITIALLY DEFERRED,
-  FOREIGN KEY (project_id, project_kind) REFERENCES resources (id, kind),
-  FOREIGN KEY (organization_id, project_id) REFERENCES resources (organization_id, id)
+  FOREIGN KEY (organization_id, id, kind) REFERENCES resources (organization_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (organization_id, project_id, project_kind) REFERENCES resources (organization_id, id, kind)
 );
 CREATE INDEX ON ownables (project_id);
 CREATE INDEX ON ownables (created_by_id);
@@ -462,9 +458,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   WHERE organization.created_by_id = authz.caller_id() AND organization.founded_at IS NULL
 $$;
 
-CREATE FUNCTION authz.pending_invitations() RETURNS SETOF UUID
+CREATE FUNCTION authz.pending_invitations() RETURNS TABLE (organization_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT invitation.id FROM public.invitations invitation
+  SELECT invitation.organization_id, invitation.id FROM public.invitations invitation
   WHERE invitation.email = authz.verified_email() AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
 $$;
 
@@ -555,9 +551,15 @@ GRANT EXECUTE ON FUNCTION authz.refuse_repeatable_read() TO PUBLIC;
 REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_parents, team_members, resources, resource_parents, ownables, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
 
 -- The replica runs authz.caller_grantees() itself, so the caller's own grantee rows reach it.
+-- Every other grantee is readable with the user, team, organization, link or installation it stands for.
 GRANT SELECT ON grantees TO app;
 CREATE POLICY grantees_select ON grantees FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.caller_grantees())));
+  USING (id = ANY (ARRAY(SELECT authz.caller_grantees()))
+    OR (kind = 'user' AND id = ANY (ARRAY(SELECT person.id FROM users person)))
+    OR (kind = 'team' AND id = ANY (ARRAY(SELECT team.id FROM teams team)))
+    OR (kind = 'organization' AND id = ANY (ARRAY(SELECT organization.id FROM organizations organization)))
+    OR (kind = 'link' AND id = ANY (ARRAY(SELECT link.id FROM share_links link)))
+    OR (kind = 'installation' AND id = ANY (ARRAY(SELECT installation.id FROM app_installations installation))));
 
 GRANT SELECT ON users TO app;
 GRANT SELECT, INSERT ON users TO identity_writer;
@@ -572,7 +574,11 @@ CREATE POLICY users_insert ON users FOR INSERT TO identity_writer
 GRANT SELECT, DELETE ON organizations TO app;
 GRANT INSERT (id, created_by_id) ON organizations TO app;
 CREATE POLICY organizations_select ON organizations FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.organizations_with('reader'))));
+  USING ((id = ANY (ARRAY(SELECT authz.organizations_reaching('reader'))))
+    OR (id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL)
+    OR (id = ANY (ARRAY(SELECT invitation.organization_id FROM invitations invitation
+      WHERE invitation.accepted_by_id IS NULL AND invitation.expires_at > now()))));
 CREATE POLICY organizations_delete ON organizations FOR DELETE TO app
   USING (id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 CREATE POLICY organizations_insert ON organizations FOR INSERT TO app
@@ -581,15 +587,16 @@ CREATE POLICY organizations_insert ON organizations FOR INSERT TO app
 GRANT SELECT, INSERT, UPDATE (state), DELETE ON memberships TO app;
 CREATE POLICY memberships_select ON memberships FOR SELECT TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (user_id = (SELECT authz.caller_id())
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
+-- Members join only by founding or by accepting an invitation.
 CREATE POLICY memberships_insert ON memberships FOR INSERT TO app
-  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))) AND invitation_id IS NULL)
-    OR (organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
+  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
       AND user_id = (SELECT authz.caller_id()) AND state = 'active' AND invitation_id IS NULL
       AND (SELECT authz.acting_installation_id()) IS NULL)
-    OR (invitation_id = ANY (ARRAY(SELECT authz.pending_invitations()))
+    OR ((organization_id, invitation_id) IN (SELECT * FROM authz.pending_invitations())
       AND user_id = (SELECT authz.caller_id()) AND state = 'active'
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer')))));
@@ -616,7 +623,8 @@ CREATE POLICY invitations_delete ON invitations FOR DELETE TO app
 
 GRANT SELECT, INSERT, DELETE ON teams TO app;
 CREATE POLICY teams_select ON teams FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.member_organizations())));
+  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 CREATE POLICY teams_insert ON teams FOR INSERT TO app
   WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
@@ -624,10 +632,12 @@ CREATE POLICY teams_delete ON teams FOR DELETE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 GRANT SELECT, INSERT, UPDATE (parent_id), DELETE ON team_parents TO app;
 CREATE POLICY team_parents_select ON team_parents FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.member_organizations())));
+  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 CREATE POLICY team_parents_insert ON team_parents FOR INSERT TO app
   WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (parent_id = ANY (ARRAY(SELECT authz.administered_teams()))));
+    OR (parent_id = ANY (ARRAY(SELECT authz.administered_teams()))
+      AND organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
 CREATE POLICY team_parents_update ON team_parents FOR UPDATE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
@@ -636,10 +646,12 @@ CREATE POLICY team_parents_delete ON team_parents FOR DELETE TO app
 
 GRANT SELECT, INSERT, UPDATE (team_role), DELETE ON team_members TO app;
 CREATE POLICY team_members_select ON team_members FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.member_organizations())));
+  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
+    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 CREATE POLICY team_members_insert ON team_members FOR INSERT TO app
   WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))));
+    OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))
+      AND organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
 CREATE POLICY team_members_update ON team_members FOR UPDATE TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))))
@@ -651,7 +663,9 @@ CREATE POLICY team_members_delete ON team_members FOR DELETE TO app
 
 GRANT SELECT, INSERT, UPDATE (archived_at, writers_can_share), DELETE ON resources TO app;
 CREATE POLICY resources_select ON resources FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
+  USING ((id = ANY (ARRAY(SELECT authz.resources_with('reader'))))
+    OR (organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
+      AND (SELECT authz.acting_installation_id()) IS NULL));
 CREATE POLICY resources_insert ON resources FOR INSERT TO app
   WITH CHECK ((kind IN ('folder', 'project')
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('admin')))
@@ -704,9 +718,10 @@ CREATE POLICY grants_select ON grants FOR SELECT TO app
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY grants_insert ON grants FOR INSERT TO app
-  WITH CHECK ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share)
-    OR (resource_id = organization_id AND grantee_id = (SELECT authz.caller_id()) AND grantee_kind = 'user' AND role = 'admin'
-      AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL));
+  WITH CHECK ((grantee_id, grantee_kind) IN (SELECT grantee.id, grantee.kind FROM grantees grantee)
+    AND ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share)
+      OR (resource_id = organization_id AND grantee_id = (SELECT authz.caller_id()) AND grantee_kind = 'user' AND role = 'admin'
+        AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL)));
 CREATE POLICY grants_update ON grants FOR UPDATE TO app
   USING ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share))
   WITH CHECK ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
@@ -742,7 +757,8 @@ GRANT SELECT, INSERT, UPDATE (expires_at), DELETE ON organization_blocks TO app;
 CREATE POLICY organization_blocks_select ON organization_blocks FOR SELECT TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 CREATE POLICY organization_blocks_insert ON organization_blocks FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+    AND (principal_id, principal_kind) IN (SELECT grantee.id, grantee.kind FROM grantees grantee));
 CREATE POLICY organization_blocks_update ON organization_blocks FOR UPDATE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
@@ -763,7 +779,8 @@ GRANT SELECT, INSERT, DELETE ON app_installations TO app;
 CREATE POLICY app_installations_select ON app_installations FOR SELECT TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 CREATE POLICY app_installations_insert ON app_installations FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+    AND app_id IN (SELECT app.id FROM apps app));
 CREATE POLICY app_installations_delete ON app_installations FOR DELETE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 GRANT SELECT, INSERT, DELETE ON installation_permissions TO app;

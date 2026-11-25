@@ -42,6 +42,40 @@ pub const TENANT_TABLES: &[&str] = &[
 /// Lint groups raised to [`Level::Warn`] beside the default ones.
 pub const RAISED_GROUPS: [LintGroup; 2] = [LintGroup::Pedantic, LintGroup::Restriction];
 
+/// Helper sets each yielding only values the second yields. Every helper
+/// tests `role >= min_role`, an organization grant is a grant on the
+/// organization's own resource, and a team admin holds an active membership.
+pub const SETS_WITHIN: &[(&str, &str)] = &[
+    (
+        "authz.organizations_with('admin')",
+        "authz.organizations_with('reader')",
+    ),
+    (
+        "authz.organizations_with('reader')",
+        "authz.organizations_reaching('reader')",
+    ),
+    (
+        "authz.organizations_reaching('admin')",
+        "authz.organizations_reaching('writer')",
+    ),
+    (
+        "authz.organizations_reaching('writer')",
+        "authz.organizations_reaching('reader')",
+    ),
+    (
+        "authz.team_admin_organizations()",
+        "authz.member_organizations()",
+    ),
+    (
+        "authz.resources_with('admin')",
+        "authz.resources_with('writer')",
+    ),
+    (
+        "authz.resources_with('writer')",
+        "authz.resources_with('reader')",
+    ),
+];
+
 /// The deployment connetto-schema is written for, over the parsed cluster
 /// bootstrap in `cluster/roles.sql`.
 ///
@@ -84,6 +118,11 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
             .with_credential(credential)
             .expect("credential parses");
     }
+    for (narrower, wider) in SETS_WITHIN {
+        deployment = deployment
+            .with_set_within(narrower, wider)
+            .expect("helper set parses");
+    }
     deployment
         .with_request_setting("authz.acting_installation_id()")
         .expect("request setting parses")
@@ -105,6 +144,12 @@ pub fn constrainer(deployment: Deployment) -> DefaultConstrainer<ParserDB> {
 /// Excuses the findings the schema keeps on purpose.
 fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
     let table = |name| TargetName::new(name, false);
+    // An organization installs apps that other organizations publish
+    constrainer.allow_foreign_key(
+        "tenant_local_reference",
+        table("app_installations"),
+        "app_installations_app_id_fkey",
+    );
     // Removing a membership removes its team memberships
     constrainer.allow_foreign_key(
         "cascade_into_row_level_security_table",
@@ -130,36 +175,25 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         "grants_organization_id_resource_id_fkey",
     );
     // Deleting a folder or project needs organization admin, which also administers its parent as the edge policy asks
-    for key in [
-        "resource_parents_organization_id_id_fkey",
-        "resource_parents_id_resource_kind_fkey",
-    ] {
-        constrainer.allow_foreign_key(
-            "cascade_into_row_level_security_table",
-            table("resource_parents"),
-            key,
-        );
-    }
+    constrainer.allow_foreign_key(
+        "cascade_into_row_level_security_table",
+        table("resource_parents"),
+        "resource_parents_organization_id_id_resource_kind_fkey",
+    );
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
     constrainer.allow_table("unaudited_authority_table", table("grantees"));
     // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin
-    for (policy_table, policy) in [
-        ("memberships", "memberships_insert"),
-        ("team_members", "team_members_insert"),
-    ] {
-        constrainer.allow_policy("self_granting_write", table(policy_table), policy);
-    }
+    constrainer.allow_policy(
+        "self_granting_write",
+        table("team_members"),
+        "team_members_insert",
+    );
     // Each insert policy pins the column beside the key to an organization or project the caller already sees
-    for (index_table, index) in [
-        ("invitations", "invitations_organization_id_id_key"),
-        ("ownables", "ownables_id_project_id_key"),
-    ] {
-        constrainer.allow_index(
-            "unscoped_unique_constraint_on_row_level_security_table",
-            table(index_table),
-            index,
-        );
-    }
+    constrainer.allow_index(
+        "unscoped_unique_constraint_on_row_level_security_table",
+        table("invitations"),
+        "invitations_organization_id_id_key",
+    );
     // Only the caller's own unaccepted invitation passes memberships_insert, so the policy refuses before the key is checked
     constrainer.allow_index(
         "unscoped_unique_constraint_on_row_level_security_table",

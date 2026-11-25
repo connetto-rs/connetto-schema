@@ -184,9 +184,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   WHERE organization.created_by_id = authz.caller_id() AND organization.founded_at IS NULL
 $$;
 
-CREATE FUNCTION authz.pending_invitations() RETURNS SETOF UUID
+CREATE FUNCTION authz.pending_invitations() RETURNS TABLE (organization_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT invitation.id FROM public.invitations invitation
+  SELECT invitation.organization_id, invitation.id FROM public.invitations invitation
   WHERE invitation.email = authz.verified_email() AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
 $$;
 

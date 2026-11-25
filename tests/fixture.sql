@@ -30,7 +30,21 @@ CREATE FUNCTION pg_temp.accept_invitation(invitation UUID) RETURNS VOID LANGUAGE
   INSERT INTO public.memberships (organization_id, user_id, state, invitation_id)
     SELECT pending.organization_id, authz.caller_id(), 'active', invitation FROM public.invitations pending WHERE pending.id = invitation;
 $$;
+-- The caller invites the member, who accepts, as an organization admin and the invitee do.
+CREATE FUNCTION pg_temp.add_member(organization UUID, member UUID) RETURNS VOID LANGUAGE plpgsql AS $$
+DECLARE
+  inviter TEXT := current_setting('app.user_id');
+  email TEXT := current_setting('app.verified_email');
+  invitation UUID := gen_random_uuid();
+BEGIN
+  INSERT INTO public.invitations (id, organization_id, email, expires_at, invited_by_id)
+    VALUES (invitation, organization, member || '@example.com', now() + interval '1 day', inviter::uuid);
+  PERFORM set_config('app.user_id', member::text, false), set_config('app.verified_email', member || '@example.com', false);
+  INSERT INTO public.memberships (organization_id, user_id, state, invitation_id) VALUES (organization, member, 'active', invitation);
+  PERFORM set_config('app.user_id', inviter, false), set_config('app.verified_email', email, false);
+END
+$$;
 GRANT EXECUTE ON FUNCTION pg_temp.found_organization(UUID), pg_temp.create_child_team(UUID, UUID),
   pg_temp.create_child_resource(UUID, authz.resource_kind, UUID), pg_temp.create_ownable(UUID, UUID, UUID, UUID),
-  pg_temp.accept_invitation(UUID) TO app;
+  pg_temp.accept_invitation(UUID), pg_temp.add_member(UUID, UUID) TO app;
 GRANT EXECUTE ON FUNCTION pg_temp.act(TEXT) TO app, identity_writer;

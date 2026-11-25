@@ -1335,31 +1335,21 @@ pub mod ownables_model {
     #[table_model(foreign_key((created_by_id), (::connetto_schema::users::id)))]
     #[table_model(
         foreign_key(
-            (id, kind),
-            (::connetto_schema::resources::id, ::connetto_schema::resources::kind)
-        )
-    )]
-    #[table_model(
-        foreign_key(
-            (organization_id, id),
+            (organization_id, id, kind),
             (
                 ::connetto_schema::resources::organization_id,
-                ::connetto_schema::resources::id
+                ::connetto_schema::resources::id,
+                ::connetto_schema::resources::kind
             )
         )
     )]
     #[table_model(
         foreign_key(
-            (project_id, project_kind),
-            (::connetto_schema::resources::id, ::connetto_schema::resources::kind)
-        )
-    )]
-    #[table_model(
-        foreign_key(
-            (organization_id, project_id),
+            (organization_id, project_id, project_kind),
             (
                 ::connetto_schema::resources::organization_id,
-                ::connetto_schema::resources::id
+                ::connetto_schema::resources::id,
+                ::connetto_schema::resources::kind
             )
         )
     )]
@@ -1559,32 +1549,22 @@ pub mod resource_parents_model {
     #[table_model(record_error = ::validation_errors::ValidationError)]
     #[table_model(
         foreign_key(
-            (organization_id, id),
+            (organization_id, id, resource_kind),
             (
                 ::connetto_schema::resources::organization_id,
-                ::connetto_schema::resources::id
+                ::connetto_schema::resources::id,
+                ::connetto_schema::resources::kind
             )
         )
     )]
     #[table_model(
         foreign_key(
-            (organization_id, parent_id),
+            (organization_id, parent_id, parent_kind),
             (
                 ::connetto_schema::resources::organization_id,
-                ::connetto_schema::resources::id
+                ::connetto_schema::resources::id,
+                ::connetto_schema::resources::kind
             )
-        )
-    )]
-    #[table_model(
-        foreign_key(
-            (id, resource_kind),
-            (::connetto_schema::resources::id, ::connetto_schema::resources::kind)
-        )
-    )]
-    #[table_model(
-        foreign_key(
-            (parent_id, parent_kind),
-            (::connetto_schema::resources::id, ::connetto_schema::resources::kind)
         )
     )]
     #[diesel(table_name = resource_parents)]
@@ -1723,8 +1703,10 @@ pub mod resources_model {
         #[infallible]
         writers_can_share: bool,
     }
-    ::diesel_builders::prelude::unique_index!(resources::id, resources::kind);
     ::diesel_builders::prelude::unique_index!(resources::organization_id, resources::id);
+    ::diesel_builders::prelude::unique_index!(
+        resources::organization_id, resources::id, resources::kind
+    );
     impl ::diesel_builders::ValidateRecord<resources::table>
     for <resources::table as ::diesel_builders::TableExt>::NewValues {
         #[inline]

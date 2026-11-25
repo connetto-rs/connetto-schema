@@ -34,8 +34,6 @@ SELECT is_empty($query$SELECT 1 FROM authz.founded_organizations()$query$, 'an i
 SELECT set_config('app.installation_id', '', false);
 INSERT INTO resources (id, kind, organization_id) VALUES ('20000000-0000-7000-8000-000000000007', 'organization', '20000000-0000-7000-8000-000000000007');
 INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000007', '10000000-0000-7000-8000-000000000001', 'active');
-INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role)
-  VALUES ('20000000-0000-7000-8000-000000000007', '20000000-0000-7000-8000-000000000007', '10000000-0000-7000-8000-000000000001', 'user', 'admin');
 
 SET CONSTRAINTS ALL IMMEDIATE;
 RESET ROLE;

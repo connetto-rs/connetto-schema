@@ -47,7 +47,7 @@ CREATE TABLE organizations (
   id UUID PRIMARY KEY,
   kind authz.grantee_kind NOT NULL DEFAULT 'organization' CHECK (kind = 'organization'),
   created_by_id UUID NOT NULL REFERENCES users (id),
-  -- Set by the first admin grant on the organization. Its creator takes the founding membership and grant only while it is NULL.
+  -- The founder membership writes the admin grant that stamps `founded_at`.
   founded_at TIMESTAMPTZ,
   FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
 );
@@ -719,9 +719,7 @@ CREATE POLICY grants_select ON grants FOR SELECT TO app
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY grants_insert ON grants FOR INSERT TO app
   WITH CHECK ((grantee_id, grantee_kind) IN (SELECT grantee.id, grantee.kind FROM grantees grantee)
-    AND ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share)
-      OR (resource_id = organization_id AND grantee_id = (SELECT authz.caller_id()) AND grantee_kind = 'user' AND role = 'admin'
-        AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL)));
+    AND (resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
 CREATE POLICY grants_update ON grants FOR UPDATE TO app
   USING ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share))
   WITH CHECK ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
@@ -897,6 +895,7 @@ GRANT UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT SELECT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
+GRANT INSERT (organization_id, resource_id, grantee_id, grantee_kind, role) ON grants TO authz_writer;
 GRANT UPDATE (archived_at, inherits_archive) ON resources TO authz_writer;
 GRANT UPDATE (archived) ON resource_parents, ownables TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
@@ -1316,6 +1315,21 @@ CREATE TRIGGER grants_founded AFTER INSERT ON grants
   FOR EACH ROW WHEN (NEW.resource_id = NEW.organization_id AND NEW.role = 'admin')
   EXECUTE FUNCTION authz_write.stamp_founded_at();
 
+CREATE FUNCTION authz_write.grant_founder_admin() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  INSERT INTO public.grants (organization_id, resource_id, grantee_id, grantee_kind, role)
+    SELECT organization.id, organization.id, NEW.user_id, 'user', 'admin'
+    FROM public.organizations organization
+    WHERE organization.id = NEW.organization_id AND organization.created_by_id = NEW.user_id
+      AND organization.founded_at IS NULL;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER memberships_founder_admin AFTER INSERT ON memberships
+  FOR EACH ROW WHEN (NEW.invitation_id IS NULL) EXECUTE FUNCTION authz_write.grant_founder_admin();
+
 CREATE FUNCTION authz_write.delete_membership_grants() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -1476,6 +1490,7 @@ ALTER FUNCTION authz_write.accept_invitation() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_founded() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_organization_identifier() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.stamp_founded_at() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.grant_founder_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.record_audit_event() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.record_platform_audit_event() OWNER TO authz_writer;
 

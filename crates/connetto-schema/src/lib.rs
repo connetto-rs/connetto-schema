@@ -1343,7 +1343,7 @@ pub mod organizations_model {
         #[infallible]
         #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
         created_by_id: ::rosetta_uuid::Uuid,
-        ///Set by the first admin grant on the organization. Its creator takes the founding membership and grant only while it is NULL.
+        ///The founder membership writes the admin grant that stamps `founded_at`.
         #[infallible]
         #[diesel(sql_type = ::rosetta_utc::diesel_impls::TimestampUTC)]
         founded_at: Option<::rosetta_utc::TimestampUTC>,

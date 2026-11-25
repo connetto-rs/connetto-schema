@@ -85,7 +85,7 @@ for major in "$@"; do
   # Cargo reads the stack size in tests/replica/.cargo/config.toml only from inside the crate.
   (cd "$root/tests/replica" &&
     REPLICA_DATABASE_URL="postgres://postgres@$(docker port "$container" 5432/tcp | head -n 1)" \
-      cargo test --release --locked)
+      cargo test --locked)
 
   cleanup
   container=

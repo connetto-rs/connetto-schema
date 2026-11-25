@@ -1375,6 +1375,9 @@ pub mod ownables_model {
         created_by_id: ::rosetta_uuid::Uuid,
     }
     ::diesel_builders::prelude::unique_index!(ownables::id, ownables::project_id);
+    ::diesel_builders::prelude::unique_index!(
+        ownables::organization_id, ownables::id, ownables::kind
+    );
     ::diesel::allow_tables_to_appear_in_same_query!(
         ownables, ::connetto_schema::resources
     );
@@ -1587,6 +1590,10 @@ pub mod resource_parents_model {
         )]
         parent_kind: ::connetto_schema::authz_resource_kind::ResourceKind,
     }
+    ::diesel_builders::prelude::unique_index!(
+        resource_parents::organization_id, resource_parents::id,
+        resource_parents::resource_kind
+    );
     impl ::diesel_builders::ValidateColumn<resource_parents::resource_kind>
     for <resource_parents::table as ::diesel_builders::TableExt>::NewValues {
         type Error = ::validation_errors::ValidationError;
@@ -1683,6 +1690,26 @@ pub mod resources_model {
     #[table_model(
         foreign_key((organization_id), (::connetto_schema::organizations::id))
     )]
+    #[table_model(
+        foreign_key(
+            (organization_id, ownable_id, kind),
+            (
+                ::connetto_schema::ownables::organization_id,
+                ::connetto_schema::ownables::id,
+                ::connetto_schema::ownables::kind
+            )
+        )
+    )]
+    #[table_model(
+        foreign_key(
+            (organization_id, edge_id, kind),
+            (
+                ::connetto_schema::resource_parents::organization_id,
+                ::connetto_schema::resource_parents::id,
+                ::connetto_schema::resource_parents::resource_kind
+            )
+        )
+    )]
     #[diesel(table_name = resources)]
     pub struct Resource {
         #[infallible]
@@ -1702,6 +1729,12 @@ pub mod resources_model {
         #[table_model(default = false)]
         #[infallible]
         writers_can_share: bool,
+        #[table_model(generated)]
+        #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
+        ownable_id: Option<::rosetta_uuid::Uuid>,
+        #[table_model(generated)]
+        #[diesel(sql_type = ::rosetta_uuid::diesel_impls::Uuid)]
+        edge_id: Option<::rosetta_uuid::Uuid>,
     }
     ::diesel_builders::prelude::unique_index!(resources::organization_id, resources::id);
     ::diesel_builders::prelude::unique_index!(

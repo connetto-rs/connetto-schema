@@ -8,7 +8,7 @@ use diesel::{
     Connection, PgConnection, RunQueryDsl,
     connection::SimpleConnection,
     result::Error as DieselError,
-    sql_types::{Bool, Text},
+    sql_types::{Bool, Integer, Text},
 };
 
 use crate::{
@@ -39,6 +39,18 @@ fn connect(url: &str) -> Result<PgConnection, HarnessError> {
         target: url.to_owned(),
         source,
     })
+}
+
+/// Reads the major version of the PostgreSQL server the scenarios run against.
+pub(crate) fn postgres_major() -> Result<i32, HarnessError> {
+    let base =
+        std::env::var("REPLICA_DATABASE_URL").map_err(|_| HarnessError::MissingDatabaseUrl)?;
+    let mut connection = connect(&format!("{base}/postgres"))?;
+    diesel::select(diesel::dsl::sql::<Integer>(
+        "current_setting('server_version_num')::integer / 10000",
+    ))
+    .get_result(&mut connection)
+    .context(|| "reading the PostgreSQL major version".into())
 }
 
 impl Server {

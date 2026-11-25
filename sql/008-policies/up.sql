@@ -136,7 +136,7 @@ CREATE POLICY resources_delete ON resources FOR DELETE TO app
     OR (kind IN ('folder', 'project') AND id = ANY (ARRAY(SELECT authz.resources_with('admin')))
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 
-GRANT SELECT, INSERT, UPDATE (parent_id, parent_kind), DELETE ON resource_parents TO app;
+GRANT SELECT, INSERT, UPDATE (parent_id, parent_kind) ON resource_parents TO app;
 CREATE POLICY resource_parents_select ON resource_parents FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
 CREATE POLICY resource_parents_insert ON resource_parents FOR INSERT TO app
@@ -144,10 +144,8 @@ CREATE POLICY resource_parents_insert ON resource_parents FOR INSERT TO app
 CREATE POLICY resource_parents_update ON resource_parents FOR UPDATE TO app
   USING (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
   WITH CHECK (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
-CREATE POLICY resource_parents_delete ON resource_parents FOR DELETE TO app
-  USING (ARRAY[organization_id, parent_id] <@ ARRAY(SELECT authz.resources_with('admin')));
 
-GRANT SELECT, INSERT, UPDATE (project_id), DELETE ON ownables TO app;
+GRANT SELECT, INSERT, UPDATE (project_id) ON ownables TO app;
 CREATE POLICY ownables_select ON ownables FOR SELECT TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
 CREATE POLICY ownables_insert ON ownables FOR INSERT TO app
@@ -158,8 +156,6 @@ CREATE POLICY ownables_insert ON ownables FOR INSERT TO app
 CREATE POLICY ownables_update ON ownables FOR UPDATE TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
   WITH CHECK (project_id = ANY (ARRAY(SELECT authz.resources_with('writer'))));
-CREATE POLICY ownables_delete ON ownables FOR DELETE TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
 
 GRANT SELECT, INSERT, UPDATE (role, expires_at), DELETE ON grants TO app;
 CREATE POLICY grants_select ON grants FOR SELECT TO app
@@ -265,8 +261,6 @@ CREATE POLICY ownables_archived_insert ON ownables AS RESTRICTIVE FOR INSERT TO 
 CREATE POLICY ownables_archived_update ON ownables AS RESTRICTIVE FOR UPDATE TO app
   USING (NOT authz.is_archived(id))
   WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(project_id));
-CREATE POLICY ownables_archived_delete ON ownables AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT authz.is_archived(id));
 CREATE POLICY grants_archived_insert ON grants AS RESTRICTIVE FOR INSERT TO app
   WITH CHECK (NOT authz.is_archived(resource_id));
 CREATE POLICY grants_archived_update ON grants AS RESTRICTIVE FOR UPDATE TO app
@@ -279,8 +273,6 @@ CREATE POLICY resource_parents_archived_insert ON resource_parents AS RESTRICTIV
 CREATE POLICY resource_parents_archived_update ON resource_parents AS RESTRICTIVE FOR UPDATE TO app
   USING (NOT authz.is_archived(id))
   WITH CHECK (NOT authz.is_archived(id) AND NOT authz.is_archived(parent_id));
-CREATE POLICY resource_parents_archived_delete ON resource_parents AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT authz.is_archived(id));
 
 CREATE POLICY resources_blocked ON resources AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))

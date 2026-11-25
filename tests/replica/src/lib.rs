@@ -164,12 +164,14 @@ pub struct Translation {
 ///
 /// # Panics
 ///
-/// Panics if pg2sqlite refuses the source.
+/// Panics if the server version cannot be read or pg2sqlite refuses the source.
 pub static TRANSLATION: LazyLock<Translation> = LazyLock::new(|| {
     let translator = Pg2Sqlite::default()
         .sql(&connetto_schema_source::schema().expect("schema source"))
         .expect("source parses");
-    let query_options = query_options();
+    let major = u16::try_from(server::postgres_major().expect("server major version"))
+        .expect("server major version fits u16");
+    let query_options = query_options().with_postgres_major(major);
     let replica_options = query_options.clone().with_acting_role(ACTING_ROLE);
     let report = translator
         .translate_with_report(&replica_options)

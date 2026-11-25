@@ -121,31 +121,6 @@ CREATE TRIGGER share_links_stamp_revoked_at BEFORE INSERT OR UPDATE OF revoked_a
   FOR EACH ROW EXECUTE FUNCTION authz.stamp_revoked_at();
 REVOKE EXECUTE ON FUNCTION authz.stamp_archived_at(), authz.stamp_revoked_at() FROM PUBLIC, app;
 
-CREATE FUNCTION authz_write.delete_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  DELETE FROM public.resources WHERE id = OLD.id AND kind = 'ownable';
-  RETURN NULL;
-END
-$$;
-
-CREATE TRIGGER ownables_resource_removed AFTER DELETE ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.delete_ownable_resource();
-
-CREATE FUNCTION authz_write.check_ownable_resource() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.ownables ownable WHERE ownable.id = NEW.id) THEN
-    RAISE EXCEPTION 'resource % requires its ownable', NEW.id USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NULL;
-END
-$$;
-
-CREATE CONSTRAINT TRIGGER resources_ownable_required AFTER INSERT ON resources
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind = 'ownable')
-  EXECUTE FUNCTION authz_write.check_ownable_resource();
-
 CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -230,26 +205,6 @@ CREATE TRIGGER team_parents_shape BEFORE INSERT OR UPDATE ON team_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_parent();
 CREATE TRIGGER resource_parents_shape BEFORE INSERT OR UPDATE ON resource_parents
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_parent();
-
-CREATE FUNCTION authz_write.check_resource_edge() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-DECLARE
-  orphan UUID;
-BEGIN
-  SELECT resource.id INTO orphan FROM public.resources resource
-  WHERE resource.id IN (OLD.id, NEW.id) AND resource.kind IN ('folder', 'project')
-    AND NOT EXISTS (SELECT 1 FROM public.resource_parents edge WHERE edge.id = resource.id);
-  IF orphan IS NOT NULL THEN
-    RAISE EXCEPTION 'resource % requires a parent edge', orphan USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NULL;
-END
-$$;
-
-CREATE CONSTRAINT TRIGGER resources_parent_required AFTER INSERT OR UPDATE ON resources
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
-CREATE CONSTRAINT TRIGGER resource_parents_required AFTER DELETE OR UPDATE ON resource_parents
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_edge();
 
 CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -496,12 +451,9 @@ ALTER FUNCTION authz_write.insert_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.check_ownable_resource() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.delete_ownable_resource() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.check_resource_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.has_active_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;

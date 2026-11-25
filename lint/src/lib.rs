@@ -180,6 +180,12 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         table("resource_parents"),
         "resource_parents_organization_id_id_resource_kind_fkey",
     );
+    // Deleting an ownable resource needs admin on it, which also reads its ownable
+    constrainer.allow_foreign_key(
+        "cascade_into_row_level_security_table",
+        table("ownables"),
+        "ownables_organization_id_id_kind_fkey",
+    );
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
     constrainer.allow_table("unaudited_authority_table", table("grantees"));
     // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin

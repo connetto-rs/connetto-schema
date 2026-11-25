@@ -167,7 +167,7 @@ CREATE POLICY grants_select ON grants FOR SELECT TO app
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY grants_insert ON grants FOR INSERT TO app
-  WITH CHECK ((grantee_id, grantee_kind) IN (SELECT grantee.id, grantee.kind FROM grantees grantee)
+  WITH CHECK (grantee_id IN (SELECT grantee.id FROM grantees grantee)
     AND ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share)
       OR (resource_id = organization_id AND grantee_id = (SELECT authz.caller_id()) AND grantee_kind = 'user' AND role = 'admin'
         AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL)));
@@ -209,7 +209,7 @@ CREATE POLICY organization_blocks_select ON organization_blocks FOR SELECT TO ap
     OR principal_id = (SELECT authz.acting_installation_id()));
 CREATE POLICY organization_blocks_insert ON organization_blocks FOR INSERT TO app
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
-    AND (principal_id, principal_kind) IN (SELECT grantee.id, grantee.kind FROM grantees grantee));
+    AND principal_id IN (SELECT grantee.id FROM grantees grantee));
 CREATE POLICY organization_blocks_update ON organization_blocks FOR UPDATE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));

@@ -2,10 +2,10 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(5);
+SELECT plan(11);
 
 SET ROLE identity_writer;
-INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
+INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002'), ('10000000-0000-7000-8000-000000000003');
 RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
@@ -43,6 +43,14 @@ SELECT throws_ok($statement$INSERT INTO organization_blocks (organization_id, pr
 SELECT throws_ok($statement$INSERT INTO organization_blocks (organization_id, principal_id, principal_kind) VALUES ('20000000-0000-7000-8000-000000000001', 'a0000000-0000-7000-8000-000000000002', 'link')$statement$, '23514', NULL, 'link block is rejected');
 
 SELECT throws_ok(format('INSERT INTO organization_blocks (organization_id, principal_id, principal_kind) VALUES (%L, %L, %L)', '20000000-0000-7000-8000-000000000001', :'audience_id', 'everyone'), '23514', NULL, 'audience block is rejected');
+
+SELECT throws_ok($statement$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('40000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001', 'organization', 'reader'); SET CONSTRAINTS ALL IMMEDIATE$statement$, '23503', NULL, 'visible grant principal kind must match');
+SELECT throws_ok($statement$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('40000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000003', 'user', 'reader')$statement$, '42501', NULL, 'hidden grant principal is refused');
+SELECT throws_ok($statement$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('40000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001', NULL, 'reader')$statement$, '23502', NULL, 'visible grant principal kind is required');
+
+SELECT throws_ok($statement$INSERT INTO organization_blocks (organization_id, principal_id, principal_kind) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'installation'); SET CONSTRAINTS ALL IMMEDIATE$statement$, '23503', NULL, 'visible block principal kind must match');
+SELECT throws_ok($statement$INSERT INTO organization_blocks (organization_id, principal_id, principal_kind) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000003', 'user')$statement$, '42501', NULL, 'hidden block principal is refused');
+SELECT throws_ok($statement$INSERT INTO organization_blocks (organization_id, principal_id, principal_kind) VALUES ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', NULL)$statement$, '23502', NULL, 'visible block principal kind is required');
 
 
 SET CONSTRAINTS ALL IMMEDIATE;

@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(7);
+SELECT plan(8);
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
@@ -36,6 +36,9 @@ INSERT INTO resources (id, kind, organization_id) VALUES ('20000000-0000-7000-80
 INSERT INTO memberships (organization_id, user_id, state) VALUES ('20000000-0000-7000-8000-000000000007', '10000000-0000-7000-8000-000000000001', 'active');
 INSERT INTO grants (organization_id, resource_id, grantee_id, grantee_kind, role)
   VALUES ('20000000-0000-7000-8000-000000000007', '20000000-0000-7000-8000-000000000007', '10000000-0000-7000-8000-000000000001', 'user', 'admin');
+
+RESET ROLE;
+SELECT lives_ok($statement$INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000008', '10000000-0000-7000-8000-000000000001'); DELETE FROM organizations WHERE id = '20000000-0000-7000-8000-000000000008'; SET CONSTRAINTS ALL IMMEDIATE$statement$, 'organization inserted and deleted in one transaction needs no admin');
 
 SET CONSTRAINTS ALL IMMEDIATE;
 RESET ROLE;

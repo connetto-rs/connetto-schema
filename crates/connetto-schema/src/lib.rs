@@ -1045,7 +1045,7 @@ pub mod installation_permissions_model {
         ::diesel::Identifiable,
         ::diesel_builders::prelude::TableModel
     )]
-    #[diesel(primary_key(installation_id, kind))]
+    #[diesel(primary_key(organization_id, installation_id, kind))]
     #[table_model(
         foreign_key(
             (organization_id, installation_id),
@@ -2028,7 +2028,7 @@ pub mod team_members_model {
         ::diesel::Identifiable,
         ::diesel_builders::prelude::TableModel
     )]
-    #[diesel(primary_key(team_id, user_id))]
+    #[diesel(primary_key(organization_id, team_id, user_id))]
     #[table_model(
         foreign_key(
             (organization_id, team_id),

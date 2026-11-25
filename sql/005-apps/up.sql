@@ -24,9 +24,8 @@ CREATE TABLE installation_permissions (
   organization_id UUID NOT NULL,
   kind authz.resource_kind NOT NULL,
   max_role authz.role NOT NULL,
-  PRIMARY KEY (installation_id, kind),
+  PRIMARY KEY (organization_id, installation_id, kind),
   FOREIGN KEY (organization_id, installation_id) REFERENCES app_installations (organization_id, id)
 );
-CREATE INDEX ON installation_permissions (organization_id, installation_id);
 ALTER TABLE installation_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE installation_permissions FORCE ROW LEVEL SECURITY;

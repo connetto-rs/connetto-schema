@@ -41,7 +41,7 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
       - name: SQLippy reports nothing and rls2fga translates every clause at A
-        run: cargo run --locked --release
+        run: cargo run --locked
 
   replica:
     runs-on: ubuntu-26.04

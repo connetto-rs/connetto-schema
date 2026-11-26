@@ -617,7 +617,7 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#156bbb0d90e24f086b0d9616a14e12d67a105766"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#f80550521ef19f591e7c7f2925c83c093b08a4a4"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -648,12 +648,13 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#ba3d79f5c5645b7de8396248a8e811ce513048e3"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#db16ebed81b55a0b4e9492e7860649991a07bcbf"
 dependencies = [
  "heck",
  "inflection-rs",
  "sql-traits",
  "sqlparser",
+ "sqlparser-expr-eval",
  "sqlparser-plpgsql",
  "sqlstate",
  "thiserror",
@@ -662,7 +663,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#4a5bba20dcc3a6e6185cfe53f09f28cab2810c84"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#590c51ba5741df9a60403cc125c6e4d269f4bcb7"
 dependencies = [
  "log",
  "recursive",
@@ -684,7 +685,7 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#1eaf42b7f6a460b5e6d949b28dc34a4844a8be21"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#61e238a1d20604912acdf1056f285f69de612069"
 dependencies = [
  "quine-mc_cluskey",
  "rpds",
@@ -717,7 +718,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#4a5bba20dcc3a6e6185cfe53f09f28cab2810c84"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#590c51ba5741df9a60403cc125c6e4d269f4bcb7"
 dependencies = [
  "proc-macro2",
  "quote",

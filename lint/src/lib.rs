@@ -98,7 +98,7 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
         .with_app_role("app")
         .with_app_role("identity_writer")
         .with_pooled(true)
-        .with_tenant_key("public", TENANT_ROOT, "id")
+        .with_tenant_key("public", TENANT_ROOT, ["id"])
         .with_audit_function(
             "authz_write",
             "record_audit_event",
@@ -115,7 +115,7 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
         deployment = deployment.with_irreversible_column("public", *table, *column);
     }
     for table in TENANT_TABLES {
-        deployment = deployment.with_tenant_key("public", *table, "organization_id");
+        deployment = deployment.with_tenant_key("public", *table, ["organization_id"]);
     }
     for credential in [
         "authz.caller_id()",

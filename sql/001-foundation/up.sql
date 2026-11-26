@@ -29,6 +29,18 @@ CREATE TABLE users (
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users FORCE ROW LEVEL SECURITY;
 
+CREATE TABLE namespaces (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users (id) ON DELETE SET NULL,
+  reserved BOOLEAN NOT NULL DEFAULT false,
+  CHECK (NOT reserved OR user_id IS NULL)
+);
+CREATE UNIQUE INDEX ON namespaces (user_id);
+CREATE UNIQUE INDEX ON namespaces (reserved) WHERE reserved;
+ALTER TABLE namespaces ENABLE ROW LEVEL SECURITY;
+ALTER TABLE namespaces FORCE ROW LEVEL SECURITY;
+INSERT INTO namespaces (id, reserved) VALUES ('bc3cf2e2-768c-4af9-bf86-65f23378a212', true);
+
 CREATE TABLE platform_operators (
   id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE
 );

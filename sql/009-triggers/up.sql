@@ -8,6 +8,7 @@ GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grant
   authz.caller_id(), authz.acting_installation_id(), authz.original_actor_id(), authz.max_tree_depth() TO authz_writer;
 
 GRANT INSERT, DELETE ON grantees TO authz_writer;
+GRANT INSERT ON namespaces TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
 GRANT UPDATE (kind) ON users TO authz_writer;
 GRANT SELECT ON organizations, teams, resources, grants TO authz_writer;
@@ -81,6 +82,17 @@ BEGIN
   RETURN NULL;
 END
 $$;
+
+CREATE FUNCTION authz_write.insert_namespace() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  INSERT INTO public.namespaces (user_id) VALUES (NEW.id);
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER users_namespace AFTER INSERT ON users
+  FOR EACH ROW EXECUTE FUNCTION authz_write.insert_namespace();
 
 CREATE TRIGGER users_grantee BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER users_grantee_removed AFTER DELETE ON users FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
@@ -503,6 +515,10 @@ CREATE TRIGGER users_audit AFTER INSERT OR DELETE ON users
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
 CREATE TRIGGER users_update_audit AFTER UPDATE ON users
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER namespaces_audit AFTER INSERT OR DELETE ON namespaces
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
+CREATE TRIGGER namespaces_update_audit AFTER UPDATE ON namespaces
+  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_platform_audit_event();
 CREATE TRIGGER platform_operators_audit AFTER INSERT OR DELETE ON platform_operators
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_platform_audit_event();
 CREATE TRIGGER platform_operators_update_audit AFTER UPDATE ON platform_operators
@@ -517,6 +533,7 @@ ALTER FUNCTION authz_write.check_grant_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_operator_support_expiry() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.insert_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.insert_namespace() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_grantee_subtype() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;

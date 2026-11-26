@@ -75,7 +75,7 @@ erDiagram
     }
 ```
 
-Anything that can receive access is a grantee, and a grant gives one grantee a role on one resource. Resources form a tree under their organization through `parent_id`, and resource moves update `resource_moves.parent_id` while archive and sharing updates target `resources`. Triggers record changes in `audit_events` and `platform_audit_events`.
+Anything that can receive access is a grantee, and a grant gives one grantee a role on one resource. Resources form a tree under their organization through `parent_id`, deleting a folder or project removes its subtree, and moves update `resource_moves.parent_id` while archive and sharing updates target `resources`. Triggers record changes in `audit_events` and `platform_audit_events`.
 
 ## Layout
 

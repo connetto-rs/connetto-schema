@@ -1,0 +1,46 @@
+Parsed test spec with 3 sessions
+
+starting permutation: writer_begin writer_insert remover_begin remover_delete writer_finish remover_finish remaining
+step writer_begin: BEGIN;
+step writer_insert: 
+  INSERT INTO resources (organization_id, id, kind, parent_id, parent_kind)
+    VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000003', 'folder');
+
+step remover_begin: BEGIN;
+step remover_delete: DELETE FROM resources WHERE id = '00000000-0000-0000-0000-000000000003'; <waiting ...>
+step writer_finish: COMMIT;
+step remover_delete: <... completed>
+step remover_finish: COMMIT;
+step remaining: 
+  SELECT (SELECT count(*) FROM resources WHERE kind <> 'organization') AS resources,
+    (SELECT count(*) FROM resources WHERE parent_id IS NOT NULL) AS children,
+    (SELECT count(*) FROM resources WHERE kind = 'ownable') AS ownables;
+
+resources|children|ownables
+---------+--------+--------
+        0|       0|       0
+(1 row)
+
+
+starting permutation: remover_begin remover_delete writer_begin writer_insert remover_finish writer_finish remaining
+step remover_begin: BEGIN;
+step remover_delete: DELETE FROM resources WHERE id = '00000000-0000-0000-0000-000000000003';
+step writer_begin: BEGIN;
+step writer_insert: 
+  INSERT INTO resources (organization_id, id, kind, parent_id, parent_kind)
+    VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000003', 'folder');
+ <waiting ...>
+step remover_finish: COMMIT;
+step writer_insert: <... completed>
+ERROR:  insert or update on table "resources" violates foreign key constraint "resources_parent_archive_fkey"
+step writer_finish: COMMIT;
+step remaining: 
+  SELECT (SELECT count(*) FROM resources WHERE kind <> 'organization') AS resources,
+    (SELECT count(*) FROM resources WHERE parent_id IS NOT NULL) AS children,
+    (SELECT count(*) FROM resources WHERE kind = 'ownable') AS ownables;
+
+resources|children|ownables
+---------+--------+--------
+        0|       0|       0
+(1 row)
+

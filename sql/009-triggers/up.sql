@@ -10,7 +10,7 @@ GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grant
 GRANT INSERT, DELETE ON grantees TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
 GRANT UPDATE (kind) ON users TO authz_writer;
-GRANT SELECT ON organizations, teams, team_parents, resources, resource_parents, ownables, grants TO authz_writer;
+GRANT SELECT ON organizations, teams, resources, grants TO authz_writer;
 GRANT SELECT (id) ON share_links, app_installations TO authz_writer;
 GRANT UPDATE (founded_at) ON organizations TO authz_writer;
 GRANT SELECT ON memberships, invitations TO authz_writer;
@@ -19,8 +19,6 @@ GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT SELECT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
 GRANT INSERT (organization_id, resource_id, grantee_id, grantee_kind, role) ON grants TO authz_writer;
-GRANT UPDATE (archived_at, inherits_archive) ON resources TO authz_writer;
-GRANT UPDATE (archived) ON resource_parents, ownables TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
 
 CREATE FUNCTION authz_write.require_support_expiry(target_user UUID) RETURNS VOID
@@ -154,20 +152,13 @@ CREATE TRIGGER share_links_stamp_revoked_at BEFORE INSERT OR UPDATE OF revoked_a
   FOR EACH ROW EXECUTE FUNCTION authz.stamp_revoked_at();
 REVOKE EXECUTE ON FUNCTION authz.stamp_archived_at(), authz.stamp_revoked_at() FROM PUBLIC, app;
 
-CREATE FUNCTION authz_write.copy_edge_archive() RETURNS TRIGGER
+CREATE FUNCTION authz_write.copy_resource_archive() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  NEW.parent_archived := coalesce((SELECT parent.archived FROM public.resources parent WHERE parent.id = NEW.parent_id), FALSE);
-  NEW.archived := coalesce((SELECT child.archived FROM public.resources child WHERE child.id = NEW.id), NEW.parent_archived);
-  RETURN NEW;
-END
-$$;
-
-CREATE FUNCTION authz_write.copy_ownable_archive() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  NEW.project_archived := coalesce((SELECT project.archived FROM public.resources project WHERE project.id = NEW.project_id), FALSE);
-  NEW.archived := coalesce((SELECT own.archived FROM public.resources own WHERE own.id = NEW.id), NEW.project_archived);
+  SELECT parent.kind, parent.archived INTO NEW.parent_kind, NEW.parent_archived
+    FROM public.resources parent WHERE parent.id = NEW.parent_id;
+  NEW.parent_archived := coalesce(NEW.parent_archived, FALSE);
+  NEW.inherits_archive := NEW.parent_archived;
   RETURN NEW;
 END
 $$;
@@ -180,72 +171,27 @@ BEGIN
 END
 $$;
 
-CREATE FUNCTION authz_write.inherit_child_row_archive() RETURNS TRIGGER
+CREATE FUNCTION authz_write.inherit_resource_archive() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  UPDATE public.resources resource SET inherits_archive = ownable.project_archived
-  FROM public.ownables ownable
-  WHERE resource.id = NEW.id AND ownable.id = NEW.id
-    AND resource.inherits_archive IS DISTINCT FROM ownable.project_archived;
-  UPDATE public.resources resource SET inherits_archive = edge.parent_archived
-  FROM public.resource_parents edge
-  WHERE resource.id = NEW.id AND edge.id = NEW.id
-    AND resource.inherits_archive IS DISTINCT FROM edge.parent_archived;
-  UPDATE public.ownables ownable SET archived = resource.archived
-  FROM public.resources resource
-  WHERE ownable.id = NEW.id AND resource.id = NEW.id AND ownable.archived IS DISTINCT FROM resource.archived;
-  UPDATE public.resource_parents edge SET archived = resource.archived
-  FROM public.resources resource
-  WHERE edge.id = NEW.id AND resource.id = NEW.id AND edge.archived IS DISTINCT FROM resource.archived;
-  RETURN NULL;
+  NEW.inherits_archive := NEW.parent_archived;
+  RETURN NEW;
 END
 $$;
 
-CREATE FUNCTION authz_write.inherit_parent_archive() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  UPDATE public.resources SET inherits_archive = NEW.parent_archived
-  WHERE id = NEW.id AND inherits_archive IS DISTINCT FROM NEW.parent_archived;
-  RETURN NULL;
-END
-$$;
-
-CREATE FUNCTION authz_write.inherit_project_archive() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  UPDATE public.resources SET inherits_archive = NEW.project_archived
-  WHERE id = NEW.id AND inherits_archive IS DISTINCT FROM NEW.project_archived;
-  RETURN NULL;
-END
-$$;
-
-CREATE TRIGGER resources_inherit_archive AFTER INSERT ON resources
-  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_child_row_archive();
-CREATE TRIGGER resource_parents_copy_archive BEFORE INSERT ON resource_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_edge_archive();
-CREATE TRIGGER resource_parents_move_copy_archive BEFORE UPDATE ON resource_parents
-  FOR EACH ROW WHEN ((OLD.id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.parent_id))
-  EXECUTE FUNCTION authz_write.copy_edge_archive();
-CREATE TRIGGER ownables_copy_archive BEFORE INSERT ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_ownable_archive();
-CREATE TRIGGER ownables_move_copy_archive BEFORE UPDATE ON ownables
-  FOR EACH ROW WHEN ((OLD.id, OLD.project_id) IS DISTINCT FROM (NEW.id, NEW.project_id))
-  EXECUTE FUNCTION authz_write.copy_ownable_archive();
+CREATE TRIGGER resources_copy_archive BEFORE INSERT ON resources
+  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_resource_archive();
+CREATE TRIGGER resources_move_copy_archive BEFORE UPDATE ON resources
+  FOR EACH ROW WHEN (OLD.parent_id IS DISTINCT FROM NEW.parent_id)
+  EXECUTE FUNCTION authz_write.copy_resource_archive();
+CREATE TRIGGER resources_update_inherit_archive BEFORE UPDATE OF parent_archived ON resources
+  FOR EACH ROW WHEN (OLD.parent_archived IS DISTINCT FROM NEW.parent_archived)
+  EXECUTE FUNCTION authz_write.inherit_resource_archive();
 CREATE TRIGGER grants_copy_archive BEFORE INSERT ON grants
   FOR EACH ROW EXECUTE FUNCTION authz_write.copy_grant_archive();
 CREATE TRIGGER grants_move_copy_archive BEFORE UPDATE ON grants
   FOR EACH ROW WHEN (OLD.resource_id IS DISTINCT FROM NEW.resource_id)
   EXECUTE FUNCTION authz_write.copy_grant_archive();
-CREATE TRIGGER resource_parents_inherit_archive AFTER INSERT ON resource_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_parent_archive();
-CREATE TRIGGER resource_parents_update_inherit_archive AFTER UPDATE ON resource_parents
-  FOR EACH ROW WHEN ((OLD.id, OLD.parent_archived) IS DISTINCT FROM (NEW.id, NEW.parent_archived))
-  EXECUTE FUNCTION authz_write.inherit_parent_archive();
-CREATE TRIGGER ownables_inherit_archive AFTER INSERT ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_project_archive();
-CREATE TRIGGER ownables_update_inherit_archive AFTER UPDATE ON ownables
-  FOR EACH ROW WHEN ((OLD.id, OLD.project_archived) IS DISTINCT FROM (NEW.id, NEW.project_archived))
-  EXECUTE FUNCTION authz_write.inherit_project_archive();
 
 CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -266,11 +212,12 @@ DECLARE
 BEGIN
   PERFORM authz_write.lock_organization(NEW.organization_id);
   WITH RECURSIVE ancestors (id, depth) AS (
-    SELECT NEW.parent_id, 1
+    SELECT NEW.parent_id, 1 WHERE NEW.parent_id IS NOT NULL
     UNION
-    SELECT edge.parent_id, ancestors.depth + 1 FROM public.team_parents edge
-    JOIN ancestors ON edge.id = ancestors.id
-    WHERE ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
+    SELECT team.parent_id, ancestors.depth + 1 FROM public.teams team
+    JOIN ancestors ON team.id = ancestors.id
+    WHERE team.parent_id IS NOT NULL
+      AND ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
   )
   SELECT max(ancestors.depth), bool_or(ancestors.id = NEW.id)
     INTO ancestor_depth, contains_cycle FROM ancestors;
@@ -280,12 +227,12 @@ BEGIN
   WITH RECURSIVE descendants (id, depth) AS (
     SELECT NEW.id, 1
     UNION
-    SELECT edge.id, descendants.depth + 1 FROM public.team_parents edge
-    JOIN descendants ON edge.parent_id = descendants.id
+    SELECT team.id, descendants.depth + 1 FROM public.teams team
+    JOIN descendants ON team.parent_id = descendants.id
     WHERE descendants.depth <= authz.max_tree_depth()
   )
   SELECT max(descendants.depth) INTO descendant_depth FROM descendants;
-  IF ancestor_depth + descendant_depth > authz.max_tree_depth() THEN
+  IF coalesce(ancestor_depth, 0) + descendant_depth > authz.max_tree_depth() THEN
     RAISE EXCEPTION 'team % would exceed depth %', NEW.id, authz.max_tree_depth() USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
@@ -303,9 +250,10 @@ BEGIN
   WITH RECURSIVE ancestors (id, depth) AS (
     SELECT NEW.parent_id, 1
     UNION
-    SELECT edge.parent_id, ancestors.depth + 1 FROM public.resource_parents edge
-    JOIN ancestors ON edge.id = ancestors.id
-    WHERE ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
+    SELECT resource.parent_id, ancestors.depth + 1 FROM public.resources resource
+    JOIN ancestors ON resource.id = ancestors.id
+    WHERE resource.parent_id IS NOT NULL
+      AND ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
   )
   SELECT max(ancestors.depth) FILTER (WHERE ancestors.id <> NEW.organization_id), bool_or(ancestors.id = NEW.id)
     INTO ancestor_depth, contains_cycle FROM ancestors;
@@ -315,9 +263,9 @@ BEGIN
   WITH RECURSIVE descendants (id, depth) AS (
     SELECT NEW.id, 1
     UNION
-    SELECT edge.id, descendants.depth + 1 FROM public.resource_parents edge
-    JOIN descendants ON edge.parent_id = descendants.id
-    WHERE descendants.depth <= authz.max_tree_depth()
+    SELECT resource.id, descendants.depth + 1 FROM public.resources resource
+    JOIN descendants ON resource.parent_id = descendants.id
+    WHERE resource.kind IN ('folder', 'project') AND descendants.depth <= authz.max_tree_depth()
   )
   SELECT max(descendants.depth) INTO descendant_depth FROM descendants;
   IF coalesce(ancestor_depth, 0) + descendant_depth > authz.max_tree_depth() THEN
@@ -327,32 +275,18 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER team_parents_shape BEFORE INSERT OR UPDATE ON team_parents
+CREATE TRIGGER teams_shape BEFORE INSERT ON teams
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_parent();
-CREATE TRIGGER resource_parents_shape BEFORE INSERT ON resource_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_parent();
-CREATE TRIGGER resource_parents_update_shape BEFORE UPDATE ON resource_parents
-  FOR EACH ROW WHEN ((OLD.id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.parent_id))
+CREATE TRIGGER teams_update_shape BEFORE UPDATE ON teams
+  FOR EACH ROW WHEN ((OLD.id, OLD.organization_id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.organization_id, NEW.parent_id))
+  EXECUTE FUNCTION authz_write.check_team_parent();
+CREATE TRIGGER resources_shape BEFORE INSERT ON resources
+  FOR EACH ROW WHEN (NEW.kind IN ('folder', 'project'))
   EXECUTE FUNCTION authz_write.check_resource_parent();
-
-CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM ONLY public.teams team WHERE team.id = NEW.id) THEN
-    RETURN NULL;
-  END IF;
-  IF NOT NEW.organization_id IN (SELECT authz.resources_with('admin')) AND NOT EXISTS (
-    SELECT 1 FROM public.team_parents edge
-    WHERE edge.id = NEW.id AND edge.parent_id IN (SELECT authz.administered_teams())
-  ) THEN
-    RAISE EXCEPTION 'team % requires an edge to a team the caller administers', NEW.id USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NULL;
-END
-$$;
-
-CREATE CONSTRAINT TRIGGER teams_parent_required AFTER INSERT ON teams
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_edge();
+CREATE TRIGGER resources_update_shape BEFORE UPDATE ON resources
+  FOR EACH ROW WHEN (NEW.kind IN ('folder', 'project')
+    AND (OLD.id, OLD.organization_id, OLD.kind, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.organization_id, NEW.kind, NEW.parent_id))
+  EXECUTE FUNCTION authz_write.check_resource_parent();
 
 CREATE FUNCTION authz_write.has_active_admin(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -556,24 +490,10 @@ CREATE TRIGGER teams_audit AFTER INSERT OR DELETE ON teams
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER teams_update_audit AFTER UPDATE ON teams
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER team_parents_audit AFTER INSERT OR DELETE ON team_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER team_parents_update_audit AFTER UPDATE ON team_parents
-  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER resource_parents_audit AFTER INSERT OR DELETE ON resource_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER resource_parents_update_audit AFTER UPDATE ON resource_parents
-  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['archived', 'parent_archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['archived', 'parent_archived'])
-  EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER ownables_audit AFTER INSERT OR DELETE ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER ownables_update_audit AFTER UPDATE ON ownables
-  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['archived', 'project_archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['archived', 'project_archived'])
-  EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER resources_audit AFTER INSERT OR DELETE ON resources
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER resources_update_audit AFTER UPDATE ON resources
-  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['inherits_archive', 'archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['inherits_archive', 'archived'])
+  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['parent_archived', 'inherits_archive', 'archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['parent_archived', 'inherits_archive', 'archived'])
   EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER apps_audit AFTER INSERT OR DELETE ON apps
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
@@ -600,16 +520,12 @@ ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_grantee_subtype() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.copy_edge_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.copy_ownable_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.copy_resource_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_grant_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.inherit_child_row_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.inherit_parent_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.inherit_project_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.inherit_resource_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.check_team_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.has_active_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_last_admin() OWNER TO authz_writer;

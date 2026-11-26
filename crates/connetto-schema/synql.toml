@@ -86,23 +86,15 @@ CREATE TABLE teams (
   id UUID PRIMARY KEY,
   kind authz.grantee_kind NOT NULL DEFAULT 'team' CHECK (kind = 'team'),
   organization_id UUID NOT NULL REFERENCES organizations (id),
+  parent_id UUID CHECK (parent_id <> id),
   UNIQUE (organization_id, id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind),
+  FOREIGN KEY (organization_id, parent_id) REFERENCES teams (organization_id, id)
 );
+CREATE INDEX ON teams (parent_id);
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams FORCE ROW LEVEL SECURITY;
 
-CREATE TABLE team_parents (
-  id UUID PRIMARY KEY,
-  organization_id UUID NOT NULL,
-  parent_id UUID NOT NULL CHECK (parent_id <> id),
-  FOREIGN KEY (organization_id, id) REFERENCES teams (organization_id, id),
-  FOREIGN KEY (organization_id, parent_id) REFERENCES teams (organization_id, id)
-);
-CREATE INDEX ON team_parents (parent_id);
-CREATE INDEX ON team_parents (organization_id);
-ALTER TABLE team_parents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE team_parents FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE team_members (
   team_id UUID NOT NULL,
@@ -121,65 +113,36 @@ CREATE TABLE resources (
   id UUID PRIMARY KEY,
   kind authz.resource_kind NOT NULL,
   organization_id UUID NOT NULL REFERENCES organizations (id),
+  parent_id UUID CHECK (parent_id <> id),
+  parent_kind authz.resource_kind,
+  created_by_id UUID REFERENCES users (id),
   archived_at TIMESTAMPTZ,
-  -- An ancestor is archived. Each table's archive policies read archived on their own row,
-  -- through copies that the foreign keys onto archived keep equal.
+  parent_archived BOOLEAN NOT NULL DEFAULT FALSE,
   inherits_archive BOOLEAN NOT NULL DEFAULT FALSE,
   archived BOOLEAN GENERATED ALWAYS AS (archived_at IS NOT NULL OR inherits_archive) STORED NOT NULL,
   writers_can_share BOOLEAN NOT NULL DEFAULT FALSE,
+  UNIQUE (id, parent_id),
   UNIQUE (organization_id, id, archived),
   UNIQUE (organization_id, id, kind, archived),
-  CHECK ((kind = 'organization') = (id = organization_id))
+  CHECK ((kind = 'organization') = (id = organization_id)),
+  CHECK ((kind = 'organization') = (parent_id IS NULL)),
+  CHECK ((kind = 'organization') = (parent_kind IS NULL)),
+  CHECK (
+    kind = 'organization'
+    OR (kind IN ('folder', 'project') AND parent_kind IN ('organization', 'folder'))
+    OR (kind = 'ownable' AND parent_kind = 'project')
+  ),
+  CHECK ((kind = 'ownable') = (created_by_id IS NOT NULL)),
+  CHECK (inherits_archive = parent_archived),
+  CHECK (kind <> 'organization' OR NOT parent_archived),
+  CONSTRAINT resources_parent_archive_fkey FOREIGN KEY (organization_id, parent_id, parent_kind, parent_archived)
+    REFERENCES resources (organization_id, id, kind, archived) ON UPDATE CASCADE
 );
+CREATE INDEX ON resources (parent_id);
+CREATE INDEX ON resources (created_by_id);
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resources FORCE ROW LEVEL SECURITY;
 
-CREATE TABLE resource_parents (
-  id UUID PRIMARY KEY,
-  organization_id UUID NOT NULL,
-  resource_kind authz.resource_kind NOT NULL CHECK (resource_kind IN ('folder', 'project')),
-  parent_id UUID NOT NULL CHECK (parent_id <> id),
-  parent_kind authz.resource_kind NOT NULL CHECK (parent_kind IN ('organization', 'folder')),
-  archived BOOLEAN NOT NULL DEFAULT FALSE,
-  parent_archived BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (organization_id, id, resource_kind),
-  FOREIGN KEY (organization_id, id, resource_kind, archived) REFERENCES resources (organization_id, id, kind, archived)
-    ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-  FOREIGN KEY (organization_id, parent_id, parent_kind, parent_archived) REFERENCES resources (organization_id, id, kind, archived)
-    ON UPDATE CASCADE
-);
-CREATE INDEX ON resource_parents (parent_id);
-ALTER TABLE resource_parents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE resource_parents FORCE ROW LEVEL SECURITY;
-
-CREATE TABLE ownables (
-  id UUID PRIMARY KEY,
-  organization_id UUID NOT NULL,
-  kind authz.resource_kind NOT NULL DEFAULT 'ownable' CHECK (kind = 'ownable'),
-  project_id UUID NOT NULL,
-  project_kind authz.resource_kind NOT NULL DEFAULT 'project' CHECK (project_kind = 'project'),
-  created_by_id UUID NOT NULL REFERENCES users (id),
-  archived BOOLEAN NOT NULL DEFAULT FALSE,
-  project_archived BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (id, project_id),
-  UNIQUE (organization_id, id, kind),
-  FOREIGN KEY (organization_id, id, kind, archived) REFERENCES resources (organization_id, id, kind, archived)
-    ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-  FOREIGN KEY (organization_id, project_id, project_kind, project_archived) REFERENCES resources (organization_id, id, kind, archived)
-    ON UPDATE CASCADE
-);
-CREATE INDEX ON ownables (project_id);
-CREATE INDEX ON ownables (created_by_id);
-ALTER TABLE ownables ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ownables FORCE ROW LEVEL SECURITY;
-
-ALTER TABLE resources
-  ADD COLUMN ownable_id UUID GENERATED ALWAYS AS (CASE WHEN kind = 'ownable' THEN id END) STORED,
-  ADD COLUMN edge_id UUID GENERATED ALWAYS AS (CASE WHEN kind IN ('folder', 'project') THEN id END) STORED,
-  ADD FOREIGN KEY (organization_id, ownable_id, kind) REFERENCES ownables (organization_id, id, kind) ON DELETE RESTRICT NOT DEFERRABLE,
-  ADD FOREIGN KEY (organization_id, edge_id, kind) REFERENCES resource_parents (organization_id, id, resource_kind) ON DELETE RESTRICT NOT DEFERRABLE;
-CREATE INDEX ON resources (ownable_id);
-CREATE INDEX ON resources (edge_id);
 
 CREATE TABLE grants (
   resource_id UUID NOT NULL,
@@ -296,8 +259,8 @@ ALTER TABLE platform_audit_events FORCE ROW LEVEL SECURITY;
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE authz_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
-GRANT SELECT ON grantees, platform_operators, organizations, memberships, invitations, teams, team_members, team_parents,
-  share_links, resources, resource_parents, ownables, grants, organization_blocks, installation_permissions TO authz_owner;
+GRANT SELECT ON grantees, platform_operators, organizations, memberships, invitations, teams, team_members,
+  share_links, resources, grants, organization_blocks, installation_permissions TO authz_owner;
 
 CREATE FUNCTION authz.caller_id() RETURNS UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -378,7 +341,8 @@ LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_te
         OR (link.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
       AND NOT (link.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
     UNION
-    SELECT parent.parent_id FROM public.team_parents parent JOIN reached ON parent.id = reached.id
+    SELECT team.parent_id FROM public.teams team JOIN reached ON team.id = reached.id
+    WHERE team.parent_id IS NOT NULL
   )
   SELECT id FROM reached
 $$;
@@ -404,7 +368,8 @@ LANGUAGE sql STABLE STRICT SECURITY DEFINER ROWS 10 SET search_path = pg_catalog
   WITH RECURSIVE reached (id) AS (
     SELECT granted.id FROM authz.granted_resources(min_role) granted (id)
     UNION
-    SELECT parent.id FROM reached JOIN public.resource_parents parent ON parent.parent_id = reached.id
+    SELECT child.id FROM reached JOIN public.resources child ON child.parent_id = reached.id
+    WHERE child.kind IN ('folder', 'project')
   )
   SELECT id FROM reached
 $$;
@@ -413,7 +378,8 @@ CREATE FUNCTION authz.reached_with(min_role authz.role) RETURNS SETOF UUID
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT reached.id FROM authz.containers_with(min_role) reached (id)
   UNION
-  SELECT ownable.id FROM public.ownables ownable WHERE ownable.project_id IN (SELECT authz.containers_with(min_role))
+  SELECT child.id FROM public.resources child
+  WHERE child.parent_id IN (SELECT authz.containers_with(min_role))
 $$;
 
 CREATE FUNCTION authz.resources_with(min_role authz.role) RETURNS SETOF UUID
@@ -549,7 +515,7 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA authz TO app;
 REVOKE EXECUTE ON FUNCTION authz.containers_with(authz.role), authz.reached_with(authz.role) FROM app;
 GRANT EXECUTE ON FUNCTION authz.refuse_repeatable_read() TO PUBLIC;
 
-REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_parents, team_members, resources, resource_parents, ownables, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
+REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_members, resources, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
 
 -- The replica runs authz.caller_grantees() itself, so the caller's own grantee rows reach it.
 -- Every other grantee is readable with the user, team, organization, link or installation it stands for.
@@ -622,28 +588,19 @@ CREATE POLICY invitations_insert ON invitations FOR INSERT TO app
 CREATE POLICY invitations_delete ON invitations FOR DELETE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 
-GRANT SELECT, INSERT, DELETE ON teams TO app;
+GRANT SELECT, INSERT, UPDATE (parent_id), DELETE ON teams TO app;
 CREATE POLICY teams_select ON teams FOR SELECT TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
     OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 CREATE POLICY teams_insert ON teams FOR INSERT TO app
   WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
-CREATE POLICY teams_delete ON teams FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
-GRANT SELECT, INSERT, UPDATE (parent_id), DELETE ON team_parents TO app;
-CREATE POLICY team_parents_select ON team_parents FOR SELECT TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
-    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
-CREATE POLICY team_parents_insert ON team_parents FOR INSERT TO app
-  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (parent_id = ANY (ARRAY(SELECT authz.administered_teams()))
       AND organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
-CREATE POLICY team_parents_update ON team_parents FOR UPDATE TO app
+CREATE POLICY teams_delete ON teams FOR DELETE TO app
+  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+CREATE POLICY teams_update ON teams FOR UPDATE TO app
   USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
   WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
-CREATE POLICY team_parents_delete ON team_parents FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
 
 GRANT SELECT, INSERT, UPDATE (team_role), DELETE ON team_members TO app;
 CREATE POLICY team_members_select ON team_members FOR SELECT TO app
@@ -662,7 +619,7 @@ CREATE POLICY team_members_delete ON team_members FOR DELETE TO app
   USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
     OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))));
 
-GRANT SELECT, INSERT (id, kind, organization_id, archived_at, writers_can_share), UPDATE (archived_at, writers_can_share), DELETE
+GRANT SELECT, INSERT (id, kind, organization_id, parent_id, parent_kind, created_by_id, archived_at, writers_can_share), UPDATE (archived_at, writers_can_share), DELETE
   ON resources TO app;
 CREATE POLICY resources_select ON resources FOR SELECT TO app
   USING ((id = ANY (ARRAY(SELECT authz.resources_with('reader'))))
@@ -671,11 +628,14 @@ CREATE POLICY resources_select ON resources FOR SELECT TO app
 CREATE POLICY resources_insert ON resources FOR INSERT TO app
   WITH CHECK ((kind IN ('folder', 'project')
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('admin')))
+      AND parent_id = ANY (ARRAY(SELECT authz.resources_with('admin')))
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('admin'))))
     OR (kind = 'ownable'
       AND archived_at IS NULL AND writers_can_share = FALSE
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('writer')))
+      AND parent_id = ANY (ARRAY(SELECT authz.resources_with('writer')))
+      AND created_by_id = (SELECT authz.caller_id())
       AND ((SELECT authz.acting_installation_id()) IS NULL
         OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('writer'))))
     OR (kind = 'organization' AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
@@ -688,27 +648,21 @@ CREATE POLICY resources_delete ON resources FOR DELETE TO app
     OR (kind IN ('folder', 'project') AND id = ANY (ARRAY(SELECT authz.resources_with('admin')))
       AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
 
-GRANT SELECT, INSERT (id, organization_id, resource_kind, parent_id, parent_kind), UPDATE (parent_id, parent_kind)
-  ON resource_parents TO app;
-CREATE POLICY resource_parents_select ON resource_parents FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
-CREATE POLICY resource_parents_insert ON resource_parents FOR INSERT TO app
-  WITH CHECK (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
-CREATE POLICY resource_parents_update ON resource_parents FOR UPDATE TO app
-  USING (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
-  WITH CHECK (parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))));
-
-GRANT SELECT, INSERT (id, organization_id, project_id, created_by_id), UPDATE (project_id) ON ownables TO app;
-CREATE POLICY ownables_select ON ownables FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('reader'))));
-CREATE POLICY ownables_insert ON ownables FOR INSERT TO app
-  WITH CHECK (project_id = ANY (ARRAY(SELECT authz.resources_with('writer')))
-    AND created_by_id = (SELECT authz.caller_id())
-    AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('writer'))));
-CREATE POLICY ownables_update ON ownables FOR UPDATE TO app
-  USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
-  WITH CHECK (project_id = ANY (ARRAY(SELECT authz.resources_with('writer'))));
+CREATE VIEW resource_moves WITH (check_option = cascaded, security_barrier = true) AS
+SELECT id, kind, parent_id, parent_kind
+FROM resources
+WHERE id = ANY (ARRAY(SELECT authz.resources_with('reader')))
+  AND NOT archived AND NOT parent_archived
+  AND (
+    (kind IN ('folder', 'project')
+      AND parent_id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
+    OR (kind = 'ownable'
+      AND id = ANY (ARRAY(SELECT authz.resources_with('admin')))
+      AND parent_id = ANY (ARRAY(SELECT authz.resources_with('writer'))))
+  );
+ALTER VIEW resource_moves OWNER TO authz_writer;
+GRANT UPDATE (parent_id) ON resources TO authz_writer;
+GRANT SELECT, UPDATE (parent_id) ON resource_moves TO app;
 
 GRANT SELECT, INSERT (resource_id, organization_id, grantee_id, grantee_kind, role, expires_at), UPDATE (role, expires_at), DELETE
   ON grants TO app;
@@ -808,11 +762,8 @@ CREATE POLICY resources_archived_update ON resources AS RESTRICTIVE FOR UPDATE T
   USING (NOT inherits_archive);
 CREATE POLICY resources_archived_delete ON resources AS RESTRICTIVE FOR DELETE TO app
   USING (NOT archived);
-CREATE POLICY ownables_archived_insert ON ownables AS RESTRICTIVE FOR INSERT TO app
-  WITH CHECK (NOT archived AND NOT project_archived);
-CREATE POLICY ownables_archived_update ON ownables AS RESTRICTIVE FOR UPDATE TO app
-  USING (NOT archived)
-  WITH CHECK (NOT archived AND NOT project_archived);
+CREATE POLICY resources_archived_insert ON resources AS RESTRICTIVE FOR INSERT TO app
+  WITH CHECK (NOT parent_archived);
 CREATE POLICY grants_archived_insert ON grants AS RESTRICTIVE FOR INSERT TO app
   WITH CHECK (NOT resource_archived);
 CREATE POLICY grants_archived_update ON grants AS RESTRICTIVE FOR UPDATE TO app
@@ -820,11 +771,6 @@ CREATE POLICY grants_archived_update ON grants AS RESTRICTIVE FOR UPDATE TO app
   WITH CHECK (NOT resource_archived);
 CREATE POLICY grants_archived_delete ON grants AS RESTRICTIVE FOR DELETE TO app
   USING (NOT resource_archived);
-CREATE POLICY resource_parents_archived_insert ON resource_parents AS RESTRICTIVE FOR INSERT TO app
-  WITH CHECK (NOT archived AND NOT parent_archived);
-CREATE POLICY resource_parents_archived_update ON resource_parents AS RESTRICTIVE FOR UPDATE TO app
-  USING (NOT archived)
-  WITH CHECK (NOT archived AND NOT parent_archived);
 
 CREATE POLICY grants_blocked ON grants AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
@@ -839,9 +785,6 @@ CREATE POLICY invitations_blocked ON invitations AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
   WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
 CREATE POLICY teams_blocked ON teams AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
-CREATE POLICY team_parents_blocked ON team_parents AS RESTRICTIVE FOR ALL TO app
   USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
   WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
 CREATE POLICY team_members_blocked ON team_members AS RESTRICTIVE FOR ALL TO app
@@ -887,7 +830,7 @@ GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grant
 GRANT INSERT, DELETE ON grantees TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
 GRANT UPDATE (kind) ON users TO authz_writer;
-GRANT SELECT ON organizations, teams, team_parents, resources, resource_parents, ownables, grants TO authz_writer;
+GRANT SELECT ON organizations, teams, resources, grants TO authz_writer;
 GRANT SELECT (id) ON share_links, app_installations TO authz_writer;
 GRANT UPDATE (founded_at) ON organizations TO authz_writer;
 GRANT SELECT ON memberships, invitations TO authz_writer;
@@ -896,8 +839,6 @@ GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT SELECT ON audit_events TO authz_writer;
 GRANT DELETE ON grants TO authz_writer;
 GRANT INSERT (organization_id, resource_id, grantee_id, grantee_kind, role) ON grants TO authz_writer;
-GRANT UPDATE (archived_at, inherits_archive) ON resources TO authz_writer;
-GRANT UPDATE (archived) ON resource_parents, ownables TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
 
 CREATE FUNCTION authz_write.require_support_expiry(target_user UUID) RETURNS VOID
@@ -1031,20 +972,13 @@ CREATE TRIGGER share_links_stamp_revoked_at BEFORE INSERT OR UPDATE OF revoked_a
   FOR EACH ROW EXECUTE FUNCTION authz.stamp_revoked_at();
 REVOKE EXECUTE ON FUNCTION authz.stamp_archived_at(), authz.stamp_revoked_at() FROM PUBLIC, app;
 
-CREATE FUNCTION authz_write.copy_edge_archive() RETURNS TRIGGER
+CREATE FUNCTION authz_write.copy_resource_archive() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  NEW.parent_archived := coalesce((SELECT parent.archived FROM public.resources parent WHERE parent.id = NEW.parent_id), FALSE);
-  NEW.archived := coalesce((SELECT child.archived FROM public.resources child WHERE child.id = NEW.id), NEW.parent_archived);
-  RETURN NEW;
-END
-$$;
-
-CREATE FUNCTION authz_write.copy_ownable_archive() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  NEW.project_archived := coalesce((SELECT project.archived FROM public.resources project WHERE project.id = NEW.project_id), FALSE);
-  NEW.archived := coalesce((SELECT own.archived FROM public.resources own WHERE own.id = NEW.id), NEW.project_archived);
+  SELECT parent.kind, parent.archived INTO NEW.parent_kind, NEW.parent_archived
+    FROM public.resources parent WHERE parent.id = NEW.parent_id;
+  NEW.parent_archived := coalesce(NEW.parent_archived, FALSE);
+  NEW.inherits_archive := NEW.parent_archived;
   RETURN NEW;
 END
 $$;
@@ -1057,72 +991,27 @@ BEGIN
 END
 $$;
 
-CREATE FUNCTION authz_write.inherit_child_row_archive() RETURNS TRIGGER
+CREATE FUNCTION authz_write.inherit_resource_archive() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  UPDATE public.resources resource SET inherits_archive = ownable.project_archived
-  FROM public.ownables ownable
-  WHERE resource.id = NEW.id AND ownable.id = NEW.id
-    AND resource.inherits_archive IS DISTINCT FROM ownable.project_archived;
-  UPDATE public.resources resource SET inherits_archive = edge.parent_archived
-  FROM public.resource_parents edge
-  WHERE resource.id = NEW.id AND edge.id = NEW.id
-    AND resource.inherits_archive IS DISTINCT FROM edge.parent_archived;
-  UPDATE public.ownables ownable SET archived = resource.archived
-  FROM public.resources resource
-  WHERE ownable.id = NEW.id AND resource.id = NEW.id AND ownable.archived IS DISTINCT FROM resource.archived;
-  UPDATE public.resource_parents edge SET archived = resource.archived
-  FROM public.resources resource
-  WHERE edge.id = NEW.id AND resource.id = NEW.id AND edge.archived IS DISTINCT FROM resource.archived;
-  RETURN NULL;
+  NEW.inherits_archive := NEW.parent_archived;
+  RETURN NEW;
 END
 $$;
 
-CREATE FUNCTION authz_write.inherit_parent_archive() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  UPDATE public.resources SET inherits_archive = NEW.parent_archived
-  WHERE id = NEW.id AND inherits_archive IS DISTINCT FROM NEW.parent_archived;
-  RETURN NULL;
-END
-$$;
-
-CREATE FUNCTION authz_write.inherit_project_archive() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  UPDATE public.resources SET inherits_archive = NEW.project_archived
-  WHERE id = NEW.id AND inherits_archive IS DISTINCT FROM NEW.project_archived;
-  RETURN NULL;
-END
-$$;
-
-CREATE TRIGGER resources_inherit_archive AFTER INSERT ON resources
-  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_child_row_archive();
-CREATE TRIGGER resource_parents_copy_archive BEFORE INSERT ON resource_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_edge_archive();
-CREATE TRIGGER resource_parents_move_copy_archive BEFORE UPDATE ON resource_parents
-  FOR EACH ROW WHEN ((OLD.id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.parent_id))
-  EXECUTE FUNCTION authz_write.copy_edge_archive();
-CREATE TRIGGER ownables_copy_archive BEFORE INSERT ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_ownable_archive();
-CREATE TRIGGER ownables_move_copy_archive BEFORE UPDATE ON ownables
-  FOR EACH ROW WHEN ((OLD.id, OLD.project_id) IS DISTINCT FROM (NEW.id, NEW.project_id))
-  EXECUTE FUNCTION authz_write.copy_ownable_archive();
+CREATE TRIGGER resources_copy_archive BEFORE INSERT ON resources
+  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_resource_archive();
+CREATE TRIGGER resources_move_copy_archive BEFORE UPDATE ON resources
+  FOR EACH ROW WHEN (OLD.parent_id IS DISTINCT FROM NEW.parent_id)
+  EXECUTE FUNCTION authz_write.copy_resource_archive();
+CREATE TRIGGER resources_update_inherit_archive BEFORE UPDATE OF parent_archived ON resources
+  FOR EACH ROW WHEN (OLD.parent_archived IS DISTINCT FROM NEW.parent_archived)
+  EXECUTE FUNCTION authz_write.inherit_resource_archive();
 CREATE TRIGGER grants_copy_archive BEFORE INSERT ON grants
   FOR EACH ROW EXECUTE FUNCTION authz_write.copy_grant_archive();
 CREATE TRIGGER grants_move_copy_archive BEFORE UPDATE ON grants
   FOR EACH ROW WHEN (OLD.resource_id IS DISTINCT FROM NEW.resource_id)
   EXECUTE FUNCTION authz_write.copy_grant_archive();
-CREATE TRIGGER resource_parents_inherit_archive AFTER INSERT ON resource_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_parent_archive();
-CREATE TRIGGER resource_parents_update_inherit_archive AFTER UPDATE ON resource_parents
-  FOR EACH ROW WHEN ((OLD.id, OLD.parent_archived) IS DISTINCT FROM (NEW.id, NEW.parent_archived))
-  EXECUTE FUNCTION authz_write.inherit_parent_archive();
-CREATE TRIGGER ownables_inherit_archive AFTER INSERT ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.inherit_project_archive();
-CREATE TRIGGER ownables_update_inherit_archive AFTER UPDATE ON ownables
-  FOR EACH ROW WHEN ((OLD.id, OLD.project_archived) IS DISTINCT FROM (NEW.id, NEW.project_archived))
-  EXECUTE FUNCTION authz_write.inherit_project_archive();
 
 CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -1143,11 +1032,12 @@ DECLARE
 BEGIN
   PERFORM authz_write.lock_organization(NEW.organization_id);
   WITH RECURSIVE ancestors (id, depth) AS (
-    SELECT NEW.parent_id, 1
+    SELECT NEW.parent_id, 1 WHERE NEW.parent_id IS NOT NULL
     UNION
-    SELECT edge.parent_id, ancestors.depth + 1 FROM public.team_parents edge
-    JOIN ancestors ON edge.id = ancestors.id
-    WHERE ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
+    SELECT team.parent_id, ancestors.depth + 1 FROM public.teams team
+    JOIN ancestors ON team.id = ancestors.id
+    WHERE team.parent_id IS NOT NULL
+      AND ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
   )
   SELECT max(ancestors.depth), bool_or(ancestors.id = NEW.id)
     INTO ancestor_depth, contains_cycle FROM ancestors;
@@ -1157,12 +1047,12 @@ BEGIN
   WITH RECURSIVE descendants (id, depth) AS (
     SELECT NEW.id, 1
     UNION
-    SELECT edge.id, descendants.depth + 1 FROM public.team_parents edge
-    JOIN descendants ON edge.parent_id = descendants.id
+    SELECT team.id, descendants.depth + 1 FROM public.teams team
+    JOIN descendants ON team.parent_id = descendants.id
     WHERE descendants.depth <= authz.max_tree_depth()
   )
   SELECT max(descendants.depth) INTO descendant_depth FROM descendants;
-  IF ancestor_depth + descendant_depth > authz.max_tree_depth() THEN
+  IF coalesce(ancestor_depth, 0) + descendant_depth > authz.max_tree_depth() THEN
     RAISE EXCEPTION 'team % would exceed depth %', NEW.id, authz.max_tree_depth() USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
@@ -1180,9 +1070,10 @@ BEGIN
   WITH RECURSIVE ancestors (id, depth) AS (
     SELECT NEW.parent_id, 1
     UNION
-    SELECT edge.parent_id, ancestors.depth + 1 FROM public.resource_parents edge
-    JOIN ancestors ON edge.id = ancestors.id
-    WHERE ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
+    SELECT resource.parent_id, ancestors.depth + 1 FROM public.resources resource
+    JOIN ancestors ON resource.id = ancestors.id
+    WHERE resource.parent_id IS NOT NULL
+      AND ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
   )
   SELECT max(ancestors.depth) FILTER (WHERE ancestors.id <> NEW.organization_id), bool_or(ancestors.id = NEW.id)
     INTO ancestor_depth, contains_cycle FROM ancestors;
@@ -1192,9 +1083,9 @@ BEGIN
   WITH RECURSIVE descendants (id, depth) AS (
     SELECT NEW.id, 1
     UNION
-    SELECT edge.id, descendants.depth + 1 FROM public.resource_parents edge
-    JOIN descendants ON edge.parent_id = descendants.id
-    WHERE descendants.depth <= authz.max_tree_depth()
+    SELECT resource.id, descendants.depth + 1 FROM public.resources resource
+    JOIN descendants ON resource.parent_id = descendants.id
+    WHERE resource.kind IN ('folder', 'project') AND descendants.depth <= authz.max_tree_depth()
   )
   SELECT max(descendants.depth) INTO descendant_depth FROM descendants;
   IF coalesce(ancestor_depth, 0) + descendant_depth > authz.max_tree_depth() THEN
@@ -1204,32 +1095,18 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER team_parents_shape BEFORE INSERT OR UPDATE ON team_parents
+CREATE TRIGGER teams_shape BEFORE INSERT ON teams
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_parent();
-CREATE TRIGGER resource_parents_shape BEFORE INSERT ON resource_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.check_resource_parent();
-CREATE TRIGGER resource_parents_update_shape BEFORE UPDATE ON resource_parents
-  FOR EACH ROW WHEN ((OLD.id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.parent_id))
+CREATE TRIGGER teams_update_shape BEFORE UPDATE ON teams
+  FOR EACH ROW WHEN ((OLD.id, OLD.organization_id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.organization_id, NEW.parent_id))
+  EXECUTE FUNCTION authz_write.check_team_parent();
+CREATE TRIGGER resources_shape BEFORE INSERT ON resources
+  FOR EACH ROW WHEN (NEW.kind IN ('folder', 'project'))
   EXECUTE FUNCTION authz_write.check_resource_parent();
-
-CREATE FUNCTION authz_write.check_team_edge() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM ONLY public.teams team WHERE team.id = NEW.id) THEN
-    RETURN NULL;
-  END IF;
-  IF NOT NEW.organization_id IN (SELECT authz.resources_with('admin')) AND NOT EXISTS (
-    SELECT 1 FROM public.team_parents edge
-    WHERE edge.id = NEW.id AND edge.parent_id IN (SELECT authz.administered_teams())
-  ) THEN
-    RAISE EXCEPTION 'team % requires an edge to a team the caller administers', NEW.id USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NULL;
-END
-$$;
-
-CREATE CONSTRAINT TRIGGER teams_parent_required AFTER INSERT ON teams
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_edge();
+CREATE TRIGGER resources_update_shape BEFORE UPDATE ON resources
+  FOR EACH ROW WHEN (NEW.kind IN ('folder', 'project')
+    AND (OLD.id, OLD.organization_id, OLD.kind, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.organization_id, NEW.kind, NEW.parent_id))
+  EXECUTE FUNCTION authz_write.check_resource_parent();
 
 CREATE FUNCTION authz_write.has_active_admin(target_organization UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -1433,24 +1310,10 @@ CREATE TRIGGER teams_audit AFTER INSERT OR DELETE ON teams
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER teams_update_audit AFTER UPDATE ON teams
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER team_parents_audit AFTER INSERT OR DELETE ON team_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER team_parents_update_audit AFTER UPDATE ON team_parents
-  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER resource_parents_audit AFTER INSERT OR DELETE ON resource_parents
-  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER resource_parents_update_audit AFTER UPDATE ON resource_parents
-  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['archived', 'parent_archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['archived', 'parent_archived'])
-  EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER ownables_audit AFTER INSERT OR DELETE ON ownables
-  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER ownables_update_audit AFTER UPDATE ON ownables
-  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['archived', 'project_archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['archived', 'project_archived'])
-  EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER resources_audit AFTER INSERT OR DELETE ON resources
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER resources_update_audit AFTER UPDATE ON resources
-  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['inherits_archive', 'archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['inherits_archive', 'archived'])
+  FOR EACH ROW WHEN (to_jsonb(OLD) - ARRAY['parent_archived', 'inherits_archive', 'archived'] IS DISTINCT FROM to_jsonb(NEW) - ARRAY['parent_archived', 'inherits_archive', 'archived'])
   EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER apps_audit AFTER INSERT OR DELETE ON apps
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
@@ -1477,16 +1340,12 @@ ALTER FUNCTION authz_write.delete_grantee() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_grantee_subtype() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_archived_at() OWNER TO authz_writer;
 ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.copy_edge_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.copy_ownable_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.copy_resource_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_grant_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.inherit_child_row_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.inherit_parent_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.inherit_project_archive() OWNER TO authz_writer;
+ALTER FUNCTION authz_write.inherit_resource_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.check_team_edge() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.has_active_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_last_admin() OWNER TO authz_writer;
@@ -1506,5 +1365,5 @@ single_crate = true
 
 [[crates]]
 name = "connetto-schema"
-tables = ["app_installations", "apps", "audit_events", "grantees", "grants", "installation_permissions", "invitations", "memberships", "organization_blocks", "organizations", "ownables", "platform_audit_events", "platform_operators", "resource_parents", "resources", "share_links", "team_members", "team_parents", "teams", "users"]
+tables = ["app_installations", "apps", "audit_events", "grantees", "grants", "installation_permissions", "invitations", "memberships", "organization_blocks", "organizations", "platform_audit_events", "platform_operators", "resources", "share_links", "team_members", "teams", "users"]
 types = ["authz.audit_operation", "authz.grantee_kind", "authz.membership_state", "authz.resource_kind", "authz.role", "authz.team_role"]

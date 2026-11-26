@@ -11,10 +11,7 @@ SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
 SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000001');
 SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000002');
-INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
-  VALUES ('20000000-0000-7000-8000-000000000002', '40000000-0000-7000-8000-000000000003', 'folder', '20000000-0000-7000-8000-000000000002', 'organization');
-INSERT INTO resources (id, kind, organization_id) VALUES
-  ('40000000-0000-7000-8000-000000000003', 'folder', '20000000-0000-7000-8000-000000000002');
+INSERT INTO resources (id, kind, organization_id, parent_id, parent_kind) VALUES ('40000000-0000-7000-8000-000000000003', 'folder', '20000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000002', 'organization');
 SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000003');
 INSERT INTO share_links (id, organization_id, token_hash, created_by_id) VALUES
   ('a0000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000003', decode(repeat('03', 32), 'hex'), '10000000-0000-7000-8000-000000000001');
@@ -27,9 +24,7 @@ UNION ALL
 SELECT (new_row ->> 'archived_at')::timestamptz FROM audit_events WHERE table_name = 'resources' AND new_row ->> 'id' = '40000000-0000-7000-8000-000000000003' AND (new_row ->> 'archived_at')::timestamptz = now()$query$, $expected$VALUES (now()), (now())$expected$, 'database stamps archived_at update');
 
 RESET ROLE;
-INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
-      VALUES ('20000000-0000-7000-8000-000000000002', '40000000-0000-7000-8000-000000000009', 'folder', '20000000-0000-7000-8000-000000000002', 'organization');
-    INSERT INTO resources (id, kind, organization_id, archived_at) VALUES ('40000000-0000-7000-8000-000000000009', 'folder', '20000000-0000-7000-8000-000000000002', '2000-01-01');
+INSERT INTO resources (id, kind, organization_id, archived_at, parent_id, parent_kind) VALUES ('40000000-0000-7000-8000-000000000009', 'folder', '20000000-0000-7000-8000-000000000002', '2000-01-01', '20000000-0000-7000-8000-000000000002', 'organization');
 SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 SELECT results_eq($query$SELECT archived_at FROM resources WHERE id = '40000000-0000-7000-8000-000000000009'

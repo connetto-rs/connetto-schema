@@ -93,9 +93,9 @@ fn replica_deployment() -> Deployment {
         .expect("verified email parses")
         .with_request_setting(&format!("{}()", setting_function("app.installation_id")))
         .expect("installation parses")
-        .with_tenant_key("main", physical(TENANT_ROOT), "id");
+        .with_tenant_key("main", physical(TENANT_ROOT), ["id"]);
     for table in TENANT_TABLES {
-        deployment = deployment.with_tenant_key("main", physical(table), "organization_id");
+        deployment = deployment.with_tenant_key("main", physical(table), ["organization_id"]);
     }
     for (table, column) in IRREVERSIBLE_COLUMNS {
         deployment = deployment.with_irreversible_column("main", physical(table), *column);

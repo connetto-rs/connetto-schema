@@ -21,7 +21,7 @@ SELECT pg_temp.act('10000000-0000-7000-8000-000000000002');
 SET ROLE app;
 
 SELECT lives_ok($statement$SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002'); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED$statement$, 'project writer creates an ownable');
-SELECT throws_ok($statement$INSERT INTO ownables (id, organization_id, project_id, created_by_id) VALUES ('60000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002'); INSERT INTO resources (id, kind, organization_id, archived_at) VALUES ('60000000-0000-7000-8000-000000000002', 'ownable', '20000000-0000-7000-8000-000000000001', now()); SET CONSTRAINTS ALL IMMEDIATE$statement$, '42501', NULL, 'project writer cannot create an ownable already archived');
+SELECT throws_ok($statement$INSERT INTO resources (id, kind, organization_id, archived_at, parent_id, parent_kind, created_by_id) VALUES ('60000000-0000-7000-8000-000000000002', 'ownable', '20000000-0000-7000-8000-000000000001', now(), '50000000-0000-7000-8000-000000000001', 'project', '10000000-0000-7000-8000-000000000002'); SET CONSTRAINTS ALL IMMEDIATE$statement$, '42501', NULL, 'project writer cannot create an ownable already archived');
 
 RESET ROLE;
 SELECT * FROM finish();

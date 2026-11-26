@@ -29,11 +29,11 @@ RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000002');
 SET ROLE app;
 
-SELECT throws_ok($statement$DELETE FROM ownables WHERE id = '60000000-0000-7000-8000-000000000001'$statement$, '42501', NULL, 'app cannot delete an ownable directly');
+SELECT throws_ok($statement$DELETE FROM resource_moves WHERE id = '60000000-0000-7000-8000-000000000001'$statement$, '42501', NULL, 'move view cannot delete a resource');
 SELECT lives_ok($statement$DELETE FROM resources WHERE id = '60000000-0000-7000-8000-000000000001'; SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED$statement$, 'admin through a direct grant deletes an ownable that holds grants');
 
 RESET ROLE;
-SELECT is_empty($query$SELECT id FROM ownables WHERE id = '60000000-0000-7000-8000-000000000001'$query$, 'resource deletion removes its ownable');
+SELECT is_empty($query$SELECT id FROM resources WHERE kind = 'ownable' AND id = '60000000-0000-7000-8000-000000000001'$query$, 'ownable deletion removes its resource');
 SELECT is_empty($query$SELECT resource_id FROM grants WHERE resource_id = '60000000-0000-7000-8000-000000000001'$query$, 'ownable deletion removes its grants');
 SELECT results_eq($query$SELECT count(*)::int FROM audit_events WHERE table_name = 'grants' AND operation = 'DELETE' AND old_row ->> 'resource_id' = '60000000-0000-7000-8000-000000000001'$query$, $expected$VALUES (2)$expected$, 'each removed grant is audited');
 
@@ -42,7 +42,7 @@ SET ROLE app;
 SELECT lives_ok($statement$DELETE FROM resources WHERE id = '50000000-0000-7000-8000-000000000002'; SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED$statement$, 'organization admin deletes a project that holds a grant');
 
 RESET ROLE;
-SELECT is_empty($query$SELECT id FROM resources WHERE id = '50000000-0000-7000-8000-000000000002' UNION ALL SELECT id FROM resource_parents WHERE id = '50000000-0000-7000-8000-000000000002' UNION ALL SELECT resource_id FROM grants WHERE resource_id = '50000000-0000-7000-8000-000000000002'$query$, 'project deletion removes its edge and grants');
+SELECT is_empty($query$SELECT id FROM resources WHERE id = '50000000-0000-7000-8000-000000000002' UNION ALL SELECT resource_id FROM grants WHERE resource_id = '50000000-0000-7000-8000-000000000002'$query$, 'project deletion removes its row and grants');
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
 SELECT throws_ok($statement$DELETE FROM resources WHERE id = '40000000-0000-7000-8000-000000000001'$statement$, '23503', NULL, 'a folder with a child cannot be deleted');
@@ -56,6 +56,6 @@ SET ROLE app;
 DELETE FROM resources WHERE id = '50000000-0000-7000-8000-000000000003';
 SELECT lives_ok($statement$DELETE FROM resources WHERE id = '40000000-0000-7000-8000-000000000001'$statement$, 'organization admin deletes an empty folder');
 RESET ROLE;
-SELECT is_empty($query$SELECT id FROM resource_parents WHERE id = '40000000-0000-7000-8000-000000000001'$query$, 'folder deletion removes its edge');
+SELECT is_empty($query$SELECT id FROM resources WHERE kind IN ('folder', 'project') AND id = '40000000-0000-7000-8000-000000000001'$query$, 'folder deletion removes its row');
 SELECT * FROM finish();
 ROLLBACK;

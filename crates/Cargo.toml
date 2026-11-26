@@ -9,13 +9,13 @@ repository = "https://github.com/connetto-rs/connetto-schema"
 
 [workspace.dependencies]
 connetto-schema = { version = "=0.1.0", path = "./connetto-schema" }
-rosetta-utc = { version = "0.2.0", features = ["diesel", "serde"] }
+rosetta-utc = { version = "0.3.0", features = ["diesel", "serde", "postgres"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
-validation-errors = { version = "0.1.2" }
+validation-errors = { version = "0.2.1" }
 diesel = { version = "2.4.0", features = ["serde_json"] }
-diesel-builders = { version = "0.1.2" }
-rosetta-uuid = { version = "0.2.0", features = ["diesel", "serde"] }
+diesel-builders = { version = "0.2.1", features = ["postgres"] }
+rosetta-uuid = { version = "0.2.0", features = ["diesel", "serde", "postgres"] }
 
 [workspace.lints.rust]
 unused_macro_rules = "forbid"

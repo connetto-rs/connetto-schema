@@ -105,9 +105,9 @@ RESET ROLE;
 -- The admin of folder 1 only
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000004');
 SET ROLE app;
-SELECT is(pg_temp.failure($statement$INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) VALUES ('20000000-0000-7000-8000-000000000001', '60000000-0000-7000-8000-000000000002', 'folder', '40000000-0000-7000-8000-000000000001', 'folder')$statement$),
-  pg_temp.failure($statement$INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) VALUES ('20000000-0000-7000-8000-000000000001', 'e0000000-0000-7000-8000-000000000001', 'folder', '40000000-0000-7000-8000-000000000001', 'folder')$statement$),
-  'a folder admin naming an ownable it cannot read as a child fails as with a missing one');
+SELECT is(pg_temp.failure($statement$UPDATE resource_moves SET parent_id = '40000000-0000-7000-8000-000000000001' WHERE id = '60000000-0000-7000-8000-000000000002'$statement$),
+  pg_temp.failure($statement$UPDATE resource_moves SET parent_id = '40000000-0000-7000-8000-000000000001' WHERE id = 'e0000000-0000-7000-8000-000000000001'$statement$),
+  'moving an unreadable ownable matches moving a missing resource');
 RESET ROLE;
 
 -- The organization admin without a membership reads what it administers
@@ -115,7 +115,7 @@ SELECT pg_temp.act('10000000-0000-7000-8000-000000000005');
 SET ROLE app;
 SELECT results_eq($query$SELECT id FROM teams ORDER BY id$query$,
   $expected$VALUES ('30000000-0000-7000-8000-000000000001'::uuid), ('30000000-0000-7000-8000-000000000003'::uuid)$expected$, 'admin without a membership reads its teams');
-SELECT results_eq($query$SELECT id, parent_id FROM team_parents$query$,
+SELECT results_eq($query$SELECT id, parent_id FROM teams WHERE parent_id IS NOT NULL$query$,
   $expected$VALUES ('30000000-0000-7000-8000-000000000001'::uuid, '30000000-0000-7000-8000-000000000003'::uuid)$expected$, 'admin without a membership reads its team edges');
 SELECT results_eq($query$SELECT team_id, user_id FROM team_members$query$,
   $expected$VALUES ('30000000-0000-7000-8000-000000000001'::uuid, '10000000-0000-7000-8000-000000000004'::uuid)$expected$, 'admin without a membership reads its team members');
@@ -151,9 +151,9 @@ SET CONSTRAINTS ALL DEFERRED;
 RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000006');
 SET ROLE app;
-SELECT is(pg_temp.failure($statement$INSERT INTO team_parents (organization_id, id, parent_id) VALUES ('20000000-0000-7000-8000-000000000002', '30000000-0000-7000-8000-000000000002', '30000000-0000-7000-8000-000000000003')$statement$),
-  pg_temp.failure($statement$INSERT INTO team_parents (organization_id, id, parent_id) VALUES ('20000000-0000-7000-8000-000000000002', 'e0000000-0000-7000-8000-000000000001', '30000000-0000-7000-8000-000000000003')$statement$),
-  'a team admin naming a team of another organization under its own team fails as a missing team');
+SELECT is(pg_temp.failure($statement$UPDATE teams SET parent_id = '30000000-0000-7000-8000-000000000003' WHERE id = '30000000-0000-7000-8000-000000000002'$statement$),
+  pg_temp.failure($statement$UPDATE teams SET parent_id = '30000000-0000-7000-8000-000000000003' WHERE id = 'e0000000-0000-7000-8000-000000000001'$statement$),
+  'moving an unreadable team matches moving a missing team');
 SELECT is(pg_temp.failure($statement$INSERT INTO team_members (team_id, organization_id, user_id, team_role) VALUES ('30000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000002', '10000000-0000-7000-8000-000000000002', 'member')$statement$),
   pg_temp.failure($statement$INSERT INTO team_members (team_id, organization_id, user_id, team_role) VALUES ('30000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000002', 'e0000000-0000-7000-8000-000000000001', 'member')$statement$),
   'a team admin naming a member of another organization fails as a missing member');

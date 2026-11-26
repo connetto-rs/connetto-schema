@@ -10,9 +10,7 @@ RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
 SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000001');
-INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
-  VALUES ('20000000-0000-7000-8000-000000000001', '40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001', 'organization');
-INSERT INTO resources (id, kind, organization_id) VALUES ('40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001');
+INSERT INTO resources (id, kind, organization_id, parent_id, parent_kind) VALUES ('40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', 'organization');
 SELECT pg_temp.create_child_resource('40000000-0000-7000-8000-000000000002', 'folder', '40000000-0000-7000-8000-000000000001');
 SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000001', 'project', '40000000-0000-7000-8000-000000000002');
 SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000002', 'project', '20000000-0000-7000-8000-000000000001');
@@ -20,8 +18,8 @@ SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000001', '20000000-
 SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 
-UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001';
-SELECT results_eq($query$SELECT project_id FROM ownables$query$, $expected$VALUES ('50000000-0000-7000-8000-000000000002'::uuid)$expected$, 'ownable moves to the destination project');
+UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001';
+SELECT results_eq($query$SELECT parent_id FROM resources WHERE kind = 'ownable'$query$, $expected$VALUES ('50000000-0000-7000-8000-000000000002'::uuid)$expected$, 'ownable moves to the destination project');
 
 UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000000000001';
 UPDATE resources SET writers_can_share = TRUE WHERE id = '50000000-0000-7000-8000-000000000001';

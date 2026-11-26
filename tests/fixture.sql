@@ -9,20 +9,16 @@ CREATE FUNCTION pg_temp.found_organization(organization UUID) RETURNS VOID LANGU
   INSERT INTO public.memberships (organization_id, user_id, state) VALUES (organization, authz.caller_id(), 'active');
 $$;
 CREATE FUNCTION pg_temp.create_child_team(team UUID, parent UUID) RETURNS VOID LANGUAGE sql AS $$
-  INSERT INTO public.teams (id, organization_id)
-    SELECT team, ancestor.organization_id FROM public.teams ancestor WHERE ancestor.id = parent;
-  INSERT INTO public.team_parents (organization_id, id, parent_id)
-    SELECT ancestor.organization_id, team, parent FROM public.teams ancestor WHERE ancestor.id = parent;
+  INSERT INTO public.teams (id, organization_id, parent_id)
+    SELECT team, ancestor.organization_id, parent FROM public.teams ancestor WHERE ancestor.id = parent;
 $$;
 CREATE FUNCTION pg_temp.create_child_resource(child UUID, child_kind authz.resource_kind, parent UUID) RETURNS VOID LANGUAGE sql AS $$
-  INSERT INTO public.resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
-    SELECT ancestor.organization_id, child, child_kind, parent, ancestor.kind FROM public.resources ancestor WHERE ancestor.id = parent;
-  INSERT INTO public.resources (id, kind, organization_id)
-    SELECT child, child_kind, ancestor.organization_id FROM public.resources ancestor WHERE ancestor.id = parent;
+  INSERT INTO public.resources (id, kind, organization_id, parent_id, parent_kind)
+    SELECT child, child_kind, ancestor.organization_id, parent, ancestor.kind FROM public.resources ancestor WHERE ancestor.id = parent;
 $$;
 CREATE FUNCTION pg_temp.create_ownable(ownable UUID, organization UUID, project UUID, creator UUID) RETURNS VOID LANGUAGE sql AS $$
-  INSERT INTO public.ownables (id, organization_id, project_id, created_by_id) VALUES (ownable, organization, project, creator);
-  INSERT INTO public.resources (id, kind, organization_id) VALUES (ownable, 'ownable', organization);
+  INSERT INTO public.resources (id, kind, organization_id, parent_id, parent_kind, created_by_id)
+    VALUES (ownable, 'ownable', organization, project, 'project', creator);
 $$;
 CREATE FUNCTION pg_temp.accept_invitation(invitation UUID) RETURNS VOID LANGUAGE sql AS $$
   INSERT INTO public.memberships (organization_id, user_id, state, invitation_id)

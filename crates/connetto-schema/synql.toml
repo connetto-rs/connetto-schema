@@ -148,7 +148,7 @@ CREATE TABLE resources (
   CHECK (inherits_archive = parent_archived),
   CHECK (kind <> 'organization' OR NOT parent_archived),
   CONSTRAINT resources_parent_archive_fkey FOREIGN KEY (organization_id, parent_id, parent_kind, parent_archived)
-    REFERENCES resources (organization_id, id, kind, archived) ON UPDATE CASCADE
+    REFERENCES resources (organization_id, id, kind, archived) ON UPDATE CASCADE ON DELETE CASCADE
 );
 CREATE INDEX ON resources (parent_id);
 CREATE INDEX ON resources (created_by_id);

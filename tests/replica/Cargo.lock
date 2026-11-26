@@ -592,7 +592,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "pg2sqlite"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#1b6eacf5a4ae6bcfa8d33ab1709c84dc6551f3f0"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#f80cac0e114df3489a138926881f0016540f5271"
 dependencies = [
  "diesel",
  "pg2sqlite-runtime",
@@ -609,7 +609,7 @@ dependencies = [
 [[package]]
 name = "pg2sqlite-runtime"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#1b6eacf5a4ae6bcfa8d33ab1709c84dc6551f3f0"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#f80cac0e114df3489a138926881f0016540f5271"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
@@ -930,7 +930,7 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#bfb772110b4924d6478b9ec5098683a09d62c783"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#85502c717afc0f186da360e7630ac910307fb7f9"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -961,7 +961,7 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#6d4bd5a7501040bf02a6aef67a0d6e18dbf71ff6"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#b85feec46c4a7ddb695dcfd2158b35adcc43c55f"
 dependencies = [
  "heck",
  "inflection-rs",

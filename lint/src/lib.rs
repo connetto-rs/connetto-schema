@@ -25,11 +25,8 @@ pub const TENANT_TABLES: &[&str] = &[
     "invitations",
     "memberships",
     "teams",
-    "team_parents",
     "team_members",
     "resources",
-    "resource_parents",
-    "ownables",
     "grants",
     "share_links",
     "organization_blocks",
@@ -98,7 +95,7 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
         .with_app_role("app")
         .with_app_role("identity_writer")
         .with_pooled(true)
-        .with_tenant_key("public", TENANT_ROOT, "id")
+        .with_tenant_key("public", TENANT_ROOT, ["id"])
         .with_audit_function(
             "authz_write",
             "record_audit_event",
@@ -115,7 +112,7 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
         deployment = deployment.with_irreversible_column("public", *table, *column);
     }
     for table in TENANT_TABLES {
-        deployment = deployment.with_tenant_key("public", *table, "organization_id");
+        deployment = deployment.with_tenant_key("public", *table, ["organization_id"]);
     }
     for credential in [
         "authz.caller_id()",
@@ -182,36 +179,25 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         table("resources"),
         "resources_organization_id_fkey",
     );
-    // Every key into resources carries archived, and ON UPDATE CASCADE keeps the copy each archive policy reads equal to it.
-    // Whoever deletes a resource administers it, and sharable_grants lets that admin delete every grant on it.
-    // Deleting a folder or project needs organization admin, which also administers its parent as the edge policy asks.
-    // Deleting an ownable resource needs admin on it, which also reads its ownable.
+    // Archive copies remain equal through the cascading resource key.
     for (key_table, key) in [
         (
             "grants",
             "grants_organization_id_resource_id_resource_archived_fkey",
         ),
-        (
-            "resource_parents",
-            "resource_parents_organization_id_id_resource_kind_archived_fkey",
-        ),
-        (
-            "resource_parents",
-            "resource_parents_organization_id_parent_id_parent_kind_par_fkey",
-        ),
-        ("ownables", "ownables_organization_id_id_kind_archived_fkey"),
-        (
-            "ownables",
-            "ownables_organization_id_project_id_project_kind_project_a_fkey",
-        ),
+        ("resources", "resources_parent_archive_fkey"),
     ] {
         constrainer.allow_foreign_key(
             "cascade_into_row_level_security_table",
             table(key_table),
             key,
         );
-        constrainer.allow_foreign_key("copied_column_through_superkey", table(key_table), key);
     }
+    constrainer.allow_foreign_key(
+        "copied_column_through_superkey",
+        table("grants"),
+        "grants_organization_id_resource_id_resource_archived_fkey",
+    );
     // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
     constrainer.allow_table("unaudited_authority_table", table("grantees"));
     // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin
@@ -243,4 +229,8 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         "exposed_definer_over_protected_table",
         table("caller_grantees").with_schema("authz", false),
     );
+    // app moves resources only through this view, whose condition and cascaded check option decide each move, so it reads as its owner by design
+    for rule in ["owner_rights_view", "owner_rights_view_exposed"] {
+        constrainer.allow_view(rule, table("resource_moves"));
+    }
 }

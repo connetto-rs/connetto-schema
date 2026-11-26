@@ -19,9 +19,9 @@ checksum = "250f629c0161ad8107cf89319e990051fae62832fd343083bea452d93e2205fd"
 
 [[package]]
 name = "allocator-api2"
-version = "0.2.21"
+version = "0.2.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+checksum = "57b212daf2e827b1ccdd778b7eb48ba433e58cb0e4f27b43cd6b7a608425a014"
 
 [[package]]
 name = "ar_archive_writer"
@@ -592,7 +592,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "pg2sqlite"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#175f7198976adf28df3d3371eeca5097022b7a19"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#1b6eacf5a4ae6bcfa8d33ab1709c84dc6551f3f0"
 dependencies = [
  "diesel",
  "pg2sqlite-runtime",
@@ -609,7 +609,7 @@ dependencies = [
 [[package]]
 name = "pg2sqlite-runtime"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#175f7198976adf28df3d3371eeca5097022b7a19"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#1b6eacf5a4ae6bcfa8d33ab1709c84dc6551f3f0"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
@@ -660,9 +660,9 @@ dependencies = [
 
 [[package]]
 name = "pq-sys"
-version = "0.7.9"
+version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3bc77e8957fcd07d9768dc26486b07e39339693e21d3c5564be908ef6911540"
+checksum = "f334fec535bd34b8d39b7881dbcff395ccc2c287765a6a99b94354f75cf18751"
 dependencies = [
  "libc",
  "pkg-config",
@@ -688,6 +688,12 @@ dependencies = [
  "ar_archive_writer",
  "cc",
 ]
+
+[[package]]
+name = "quine-mc_cluskey"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07589615d719a60c8dd8a4622e7946465dfef20d1a428f969e3443e7386d5f45"
 
 [[package]]
 name = "quote"
@@ -791,7 +797,7 @@ checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 [[package]]
 name = "rls2fga"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/rls2fga?branch=main#d5b27ad8f28a01ac815886efbf5feff1a31a2488"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#31d935e623d936529a534cfe1a0018b2b822c752"
 dependencies = [
  "rls2fga-types",
  "serde",
@@ -805,7 +811,7 @@ dependencies = [
 [[package]]
 name = "rls2fga-types"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/rls2fga?branch=main#d5b27ad8f28a01ac815886efbf5feff1a31a2488"
+source = "git+https://github.com/connetto-rs/rls2fga?branch=main#31d935e623d936529a534cfe1a0018b2b822c752"
 dependencies = [
  "serde",
  "sql-values",
@@ -924,7 +930,7 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#9cbf89091fb26ee76f2cf382d6090937bf4a13b6"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#bfb772110b4924d6478b9ec5098683a09d62c783"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -935,6 +941,7 @@ dependencies = [
  "sqlparser-canonicalize",
  "sqlparser-expr-eval",
  "sqlparser-plpgsql",
+ "sqlparser-plpgsql-dataflow",
  "sqlstate",
  "stacker",
  "thiserror",
@@ -954,12 +961,13 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#a4427f8711795a0827ea31a9f52c8ae8c326e673"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#6d4bd5a7501040bf02a6aef67a0d6e18dbf71ff6"
 dependencies = [
  "heck",
  "inflection-rs",
  "sql-traits",
  "sqlparser",
+ "sqlparser-expr-eval",
  "sqlparser-plpgsql",
  "sqlstate",
  "thiserror",
@@ -978,7 +986,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#ccacedc53e2449028c504068f8767f89a103b408"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
 dependencies = [
  "log",
  "recursive",
@@ -1000,8 +1008,9 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#bf8d41991d71c5947fe61a91b0f6341b577a4275"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#0747feeca17d09d257e708d14a667213350a5f88"
 dependencies = [
+ "quine-mc_cluskey",
  "rpds",
  "sql-values",
  "sqlparser",
@@ -1018,9 +1027,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlparser-plpgsql-dataflow"
+version = "0.1.0"
+source = "git+https://github.com/connetto-rs/sqlparser-plpgsql-dataflow?branch=main#d9353560282a17191b70bf650cbffbddf984c0c3"
+dependencies = [
+ "sqlparser",
+ "sqlparser-expr-eval",
+ "sqlparser-plpgsql",
+ "sqlstate",
+ "thiserror",
+]
+
+[[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#ccacedc53e2449028c504068f8767f89a103b408"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
 dependencies = [
  "proc-macro2",
  "quote",

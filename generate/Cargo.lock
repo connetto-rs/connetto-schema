@@ -19,9 +19,9 @@ checksum = "250f629c0161ad8107cf89319e990051fae62832fd343083bea452d93e2205fd"
 
 [[package]]
 name = "allocator-api2"
-version = "0.2.21"
+version = "0.2.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+checksum = "57b212daf2e827b1ccdd778b7eb48ba433e58cb0e4f27b43cd6b7a608425a014"
 
 [[package]]
 name = "android_system_properties"
@@ -313,9 +313,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.17.1"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+checksum = "735eaa21a6a5ffb2e84362faaeb90c05ba8e19797ca30428478cb6ea3a4921bc"
 dependencies = [
  "allocator-api2",
  "equivalent",
@@ -598,6 +598,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "quine-mc_cluskey"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07589615d719a60c8dd8a4622e7946465dfef20d1a428f969e3443e7386d5f45"
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -802,19 +808,23 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#95bd3dcf042e76c079f7027943498d0b4f9da9ce"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#87988bc4a558498481b31a7bea98ed109f927e64"
 dependencies = [
  "geometric-traits",
  "once_cell",
+ "recursive",
  "sha2",
  "sql-values",
  "sqlparser",
  "sqlparser-canonicalize",
  "sqlparser-expr-eval",
  "sqlparser-plpgsql",
+ "sqlparser-plpgsql-dataflow",
  "sqlstate",
+ "stacker",
  "thiserror",
  "unicode-normalization",
+ "yoke",
 ]
 
 [[package]]
@@ -829,7 +839,7 @@ dependencies = [
 [[package]]
 name = "sql_relations"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/synql?branch=main#30768ec07333a88c902a3c03318c1f61899d90e2"
+source = "git+https://github.com/connetto-rs/synql?branch=main#27f477e31faca20651ad8ebe0938bc4802994c63"
 dependencies = [
  "sql-traits",
  "sqlparser",
@@ -838,7 +848,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#6a37ecb3fd517adee436e56b96e7fce4402a5708"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
 dependencies = [
  "log",
  "recursive",
@@ -859,8 +869,9 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#46deb4392399a9658ac504ad39fd32556d4f9475"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#c5b7a10d1d9a0d118f6b209c3e40341c531a0621"
 dependencies = [
+ "quine-mc_cluskey",
  "rpds",
  "sql-values",
  "sqlparser",
@@ -869,7 +880,7 @@ dependencies = [
 [[package]]
 name = "sqlparser-plpgsql"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-plpgsql?branch=main#f5ea51d2d98a1ce18fc47f74185836165fcac612"
+source = "git+https://github.com/connetto-rs/sqlparser-plpgsql?branch=main#f5debf1c49fe774f3bbfa1b51dc0951c8e24b43a"
 dependencies = [
  "sqlparser",
  "sqlstate",
@@ -877,9 +888,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlparser-plpgsql-dataflow"
+version = "0.1.0"
+source = "git+https://github.com/connetto-rs/sqlparser-plpgsql-dataflow?branch=main#d9353560282a17191b70bf650cbffbddf984c0c3"
+dependencies = [
+ "sqlparser",
+ "sqlparser-expr-eval",
+ "sqlparser-plpgsql",
+ "sqlstate",
+ "thiserror",
+]
+
+[[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#6a37ecb3fd517adee436e56b96e7fce4402a5708"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -891,6 +914,12 @@ name = "sqlstate"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "858cea190fe7555971c35a5eb336858f1bf962a2bd7ceb8704fb1759b36af2cd"
+
+[[package]]
+name = "stable_deref_trait"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stable_try_trait_v2"
@@ -957,7 +986,7 @@ dependencies = [
 [[package]]
 name = "synql"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/synql?branch=main#30768ec07333a88c902a3c03318c1f61899d90e2"
+source = "git+https://github.com/connetto-rs/synql?branch=main#27f477e31faca20651ad8ebe0938bc4802994c63"
 dependencies = [
  "enumflags2",
  "geometric-traits",
@@ -1052,9 +1081,9 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "toml"
-version = "1.2.2+spec-1.1.0"
+version = "1.2.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5426cb1b964690d913f6c5c1a1ae0b42f428ec506bb4d452876d7a209c9bca3b"
+checksum = "26b1f26e9485c1fa43ee89fe76e9f3fb9e2e52bb227f8594b4d687496b83d073"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -1076,9 +1105,9 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.1.6+spec-1.1.0"
+version = "1.1.7+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6769c452d71ba30696c6b37770c439a9cc9110f47f7d5cdbeda79840ef5ea31"
+checksum = "0bb28d6e049a9766c3bd91a8326e6179f5b132dec87906bb97018ef7a2f3431a"
 dependencies = [
  "winnow",
 ]
@@ -1245,6 +1274,22 @@ name = "winnow"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3b93199df0ab874cdf0c6a94f0a0dc3423fe41f1cafb62b8bd7b1deb277aef"
+
+[[package]]
+name = "yoke"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "417ef3fcf6c300b7dbd25c85531a746931c02ad536f3cf4786ed1e88223340b3"
+dependencies = [
+ "stable_deref_trait",
+ "zerofrom",
+]
+
+[[package]]
+name = "zerofrom"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ec05a11813ea801ff6d75110ad09cd0824ddba17dfe17128ea0d5f68e6c5272"
 
 [[package]]
 name = "zmij"

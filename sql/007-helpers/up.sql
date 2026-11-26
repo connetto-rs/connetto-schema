@@ -1,8 +1,8 @@
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE authz_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
-GRANT SELECT ON grantees, platform_operators, organizations, memberships, invitations, teams, team_members, team_parents,
-  share_links, resources, resource_parents, ownables, grants, organization_blocks, installation_permissions TO authz_owner;
+GRANT SELECT ON grantees, platform_operators, organizations, memberships, invitations, teams, team_members,
+  share_links, resources, grants, organization_blocks, installation_permissions TO authz_owner;
 
 CREATE FUNCTION authz.caller_id() RETURNS UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -83,7 +83,8 @@ LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_te
         OR (link.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
       AND NOT (link.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
     UNION
-    SELECT parent.parent_id FROM public.team_parents parent JOIN reached ON parent.id = reached.id
+    SELECT team.parent_id FROM public.teams team JOIN reached ON team.id = reached.id
+    WHERE team.parent_id IS NOT NULL
   )
   SELECT id FROM reached
 $$;
@@ -109,7 +110,8 @@ LANGUAGE sql STABLE STRICT SECURITY DEFINER ROWS 10 SET search_path = pg_catalog
   WITH RECURSIVE reached (id) AS (
     SELECT granted.id FROM authz.granted_resources(min_role) granted (id)
     UNION
-    SELECT parent.id FROM reached JOIN public.resource_parents parent ON parent.parent_id = reached.id
+    SELECT child.id FROM reached JOIN public.resources child ON child.parent_id = reached.id
+    WHERE child.kind IN ('folder', 'project')
   )
   SELECT id FROM reached
 $$;
@@ -118,7 +120,8 @@ CREATE FUNCTION authz.reached_with(min_role authz.role) RETURNS SETOF UUID
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT reached.id FROM authz.containers_with(min_role) reached (id)
   UNION
-  SELECT ownable.id FROM public.ownables ownable WHERE ownable.project_id IN (SELECT authz.containers_with(min_role))
+  SELECT child.id FROM public.resources child
+  WHERE child.parent_id IN (SELECT authz.containers_with(min_role))
 $$;
 
 CREATE FUNCTION authz.resources_with(min_role authz.role) RETURNS SETOF UUID

@@ -18,7 +18,7 @@ serde_json = { workspace = true, optional = true }
 [features]
 default = ["models", "sqlite"]
 models = ["dep:serde", "dep:diesel-builders", "dep:diesel", "dep:validation-errors", "dep:rosetta-uuid", "dep:rosetta-utc", "dep:serde_json"]
-sqlite = ["models", "diesel/sqlite", "rosetta-uuid/sqlite", "rosetta-utc/sqlite"]
+sqlite = ["models", "diesel/sqlite", "diesel-builders/sqlite", "rosetta-uuid/sqlite", "rosetta-utc/sqlite"]
 
 [lints]
 workspace = true

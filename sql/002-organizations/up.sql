@@ -41,23 +41,15 @@ CREATE TABLE teams (
   id UUID PRIMARY KEY,
   kind authz.grantee_kind NOT NULL DEFAULT 'team' CHECK (kind = 'team'),
   organization_id UUID NOT NULL REFERENCES organizations (id),
+  parent_id UUID CHECK (parent_id <> id),
   UNIQUE (organization_id, id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind),
+  FOREIGN KEY (organization_id, parent_id) REFERENCES teams (organization_id, id)
 );
+CREATE INDEX ON teams (parent_id);
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams FORCE ROW LEVEL SECURITY;
 
-CREATE TABLE team_parents (
-  id UUID PRIMARY KEY,
-  organization_id UUID NOT NULL,
-  parent_id UUID NOT NULL CHECK (parent_id <> id),
-  FOREIGN KEY (organization_id, id) REFERENCES teams (organization_id, id),
-  FOREIGN KEY (organization_id, parent_id) REFERENCES teams (organization_id, id)
-);
-CREATE INDEX ON team_parents (parent_id);
-CREATE INDEX ON team_parents (organization_id);
-ALTER TABLE team_parents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE team_parents FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE team_members (
   team_id UUID NOT NULL,

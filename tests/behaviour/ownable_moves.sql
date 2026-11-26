@@ -2,7 +2,18 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(2);
+SELECT plan(7);
+
+CREATE FUNCTION pg_temp.inspect_move(candidate UUID) RETURNS BOOLEAN
+LANGUAGE plpgsql COST 0.0001 AS $body$
+BEGIN
+  IF candidate = '20000000-0000-7000-8000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'hidden root exposed';
+  END IF;
+  RETURN TRUE;
+END
+$body$;
+GRANT EXECUTE ON FUNCTION pg_temp.inspect_move(UUID) TO app;
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
@@ -10,9 +21,7 @@ RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
 SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000001');
-INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
-  VALUES ('20000000-0000-7000-8000-000000000001', '40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001', 'organization');
-INSERT INTO resources (id, kind, organization_id) VALUES ('40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001');
+INSERT INTO resources (id, kind, organization_id, parent_id, parent_kind) VALUES ('40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', 'organization');
 SELECT pg_temp.create_child_resource('40000000-0000-7000-8000-000000000002', 'folder', '40000000-0000-7000-8000-000000000001');
 SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000001', 'project', '40000000-0000-7000-8000-000000000002');
 SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000002', 'project', '20000000-0000-7000-8000-000000000001');
@@ -21,7 +30,7 @@ SELECT pg_temp.add_member('20000000-0000-7000-8000-000000000001', '10000000-0000
 INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES
   ('40000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'writer'),
   ('50000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'writer');
-UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001';
+UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001';
 RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000002');
 SET ROLE app;
@@ -36,15 +45,32 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'admin');
 SELECT set_config('app.user_id', '10000000-0000-7000-8000-000000000002', true);
-SELECT throws_ok($statement$UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000003' WHERE id = '60000000-0000-7000-8000-000000000001'$statement$, '42501', NULL, 'move needs destination writer');
+SELECT throws_ok($statement$UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000003' WHERE id = '60000000-0000-7000-8000-000000000001'$statement$, '44000', NULL, 'move needs destination writer');
 
 RESET ROLE;
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
-UPDATE ownables SET project_id = '50000000-0000-7000-8000-000000000001' WHERE id = '60000000-0000-7000-8000-000000000001';
-SELECT is((SELECT project_id FROM ownables WHERE id = '60000000-0000-7000-8000-000000000001'), '50000000-0000-7000-8000-000000000001', 'admin can move ownable');
+UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000001' WHERE id = '60000000-0000-7000-8000-000000000001';
+SELECT is((SELECT parent_id FROM resources WHERE kind = 'ownable' AND id = '60000000-0000-7000-8000-000000000001'), '50000000-0000-7000-8000-000000000001', 'admin can move ownable');
 
 SET CONSTRAINTS ALL IMMEDIATE;
+RESET ROLE;
+SELECT pg_temp.act('10000000-0000-7000-8000-000000000002');
+SET ROLE app;
+SELECT results_eq($query$UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001' RETURNING parent_id$query$, $expected$VALUES ('50000000-0000-7000-8000-000000000002'::uuid)$expected$, 'resource admin with both project writers moves the ownable');
+RESET ROLE;
+SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
+SET ROLE app;
+DELETE FROM grants WHERE resource_id = '50000000-0000-7000-8000-000000000002' AND grantee_id = '10000000-0000-7000-8000-000000000002';
+SELECT pg_temp.act('10000000-0000-7000-8000-000000000002');
+SELECT is_empty($query$UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000001' WHERE id = '60000000-0000-7000-8000-000000000001' RETURNING id$query$, 'resource admin without source writer cannot move the ownable');
+RESET ROLE;
+SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
+SET ROLE app;
+UPDATE resources SET archived_at = now() WHERE id = '50000000-0000-7000-8000-000000000003';
+SELECT throws_ok($statement$UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000003' WHERE id = '60000000-0000-7000-8000-000000000001'$statement$, '44000', NULL, 'move check option rejects an archived destination');
+SELECT is((SELECT parent_id FROM resources WHERE id = '60000000-0000-7000-8000-000000000001'), '50000000-0000-7000-8000-000000000002'::uuid, 'failed destination check preserves the source parent');
+SELECT lives_ok($statement$SELECT id FROM resource_moves WHERE pg_temp.inspect_move(id)$statement$, 'move view filters hidden rows before caller predicates');
 RESET ROLE;
 SELECT * FROM finish();
 ROLLBACK;

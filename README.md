@@ -22,13 +22,12 @@ erDiagram
     users ||--o{ memberships : "holds"
     invitations |o--o| memberships : "accepted as"
     organizations ||--o{ teams : "has"
-    teams ||--o{ team_parents : "nests under"
+    teams |o--o{ teams : "parents"
     teams ||--o{ team_members : "has"
     memberships ||--o{ team_members : "joins"
 
     organizations ||--o{ resources : "owns"
-    resources ||--o{ resource_parents : "nests under"
-    resources ||--o| ownables : "is"
+    resources |o--o{ resources : "parents"
     resources ||--o{ grants : "shared by"
     grantees ||--o{ grants : "receives"
     organizations ||--o{ share_links : "issues"
@@ -48,6 +47,8 @@ erDiagram
         uuid id PK
         resource_kind kind "organization, folder, project, ownable"
         uuid organization_id FK
+        uuid parent_id FK
+        uuid created_by_id FK
         timestamptz archived_at
     }
     grants {
@@ -74,7 +75,7 @@ erDiagram
     }
 ```
 
-Anything that can receive access is a grantee, and a grant gives one grantee a role on one resource. Resources form a tree under their organization (folders, projects, and the ownables inside a project), and a grant on a node reaches everything below it. Triggers record every change to an organization's tables in `audit_events`, and every change to users, organizations and platform operators in `platform_audit_events`.
+Anything that can receive access is a grantee, and a grant gives one grantee a role on one resource. Resources form a tree under their organization through `parent_id`, and resource moves update `resource_moves.parent_id` while archive and sharing updates target `resources`. Triggers record changes in `audit_events` and `platform_audit_events`.
 
 ## Layout
 

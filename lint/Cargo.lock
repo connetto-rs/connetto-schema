@@ -511,7 +511,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sql-traits",
- "sql-values",
+ "sql-values 0.6.0",
  "sqlparser",
  "thiserror",
 ]
@@ -522,7 +522,7 @@ version = "0.1.0"
 source = "git+https://github.com/connetto-rs/rls2fga?branch=main#3f818d8a23590c8b9c0e113b7ee2b83b1ecbf812"
 dependencies = [
  "serde",
- "sql-values",
+ "sql-values 0.6.0",
  "thiserror",
 ]
 
@@ -617,13 +617,13 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#ceca22573c0af4eb20a47adba908b44518c2201f"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#023c4f40512825d93c0645959ece25e5ee3cfb28"
 dependencies = [
  "geometric-traits",
  "once_cell",
  "recursive",
  "sha2",
- "sql-values",
+ "sql-values 0.7.0",
  "sqlparser",
  "sqlparser-canonicalize",
  "sqlparser-expr-eval",
@@ -639,7 +639,17 @@ dependencies = [
 [[package]]
 name = "sql-values"
 version = "0.6.0"
-source = "git+https://github.com/connetto-rs/sql-values?branch=main#bee0f26da9575f1f0ab38550e3188cb25590058e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ebd2b3f5bd737ea93a9613d26b51888475bfbb4255e6aebd049bd887d450ca1"
+dependencies = [
+ "jiff",
+ "thiserror",
+]
+
+[[package]]
+name = "sql-values"
+version = "0.7.0"
+source = "git+https://github.com/connetto-rs/sql-values?branch=main#04922306756c67f531fba5963aeb68c5a028569e"
 dependencies = [
  "jiff",
  "thiserror",
@@ -648,7 +658,7 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#dfe734b2dfa9db3b43884f1385697ab3c00bb3c8"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#e8a5dbaed33667ecdd49c614c1913fa4cb105597"
 dependencies = [
  "heck",
  "inflection-rs",
@@ -663,7 +673,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#b3bc3df6fdba4600de281ab72fb9a7e4a0a1f0da"
 dependencies = [
  "log",
  "recursive",
@@ -685,11 +695,11 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#0747feeca17d09d257e708d14a667213350a5f88"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#0fb3034486b70d40581555c95776d8891cd3fbf5"
 dependencies = [
  "quine-mc_cluskey",
  "rpds",
- "sql-values",
+ "sql-values 0.7.0",
  "sqlparser",
 ]
 
@@ -718,7 +728,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#b3bc3df6fdba4600de281ab72fb9a7e4a0a1f0da"
 dependencies = [
  "proc-macro2",
  "quote",

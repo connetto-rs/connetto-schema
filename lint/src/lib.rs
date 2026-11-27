@@ -161,28 +161,6 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         table("team_members"),
         "team_members_organization_id_user_id_fkey",
     );
-    // Removing a grantee removes the grants naming it
-    constrainer.allow_foreign_key(
-        "cascade_into_row_level_security_table",
-        table("grants"),
-        "grants_grantee_id_grantee_kind_fkey",
-    );
-    // Removing a principal removes the blocks naming it
-    constrainer.allow_foreign_key(
-        "cascade_into_row_level_security_table",
-        table("organization_blocks"),
-        "organization_blocks_principal_id_principal_kind_fkey",
-    );
-    // A subtype row follows its grantee row, which only authz_write.delete_grantee deletes after the client deleted the subtype row through its policy.
-    // extension_foreign_key_on_delete_cascade asks for this cascade until SQLippy reads which roles may delete grantees (upstream/extension-cascade-into-rls)
-    for (subtype, key) in [
-        ("organizations", "organizations_id_kind_fkey"),
-        ("teams", "teams_id_kind_fkey"),
-        ("share_links", "share_links_id_kind_fkey"),
-        ("app_installations", "app_installations_id_kind_fkey"),
-    ] {
-        constrainer.allow_foreign_key("cascade_into_row_level_security_table", table(subtype), key);
-    }
     // resources_insert names only organizations from organizations_reaching or founded_organizations, which organizations_select reads
     constrainer.allow_foreign_key(
         "foreign_key_existence_oracle",

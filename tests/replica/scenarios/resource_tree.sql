@@ -30,8 +30,8 @@ INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) 
 --! client user=10000000-0000-7000-8000-000000000002 email=member2@example.com expect=ok diverges=invitations,memberships,users
 INSERT INTO memberships (organization_id, user_id, state, invitation_id) VALUES (X'20000000000070008000000000000001', X'10000000000070008000000000000002', 'active', X'71000000000070008000000000000002');
 
--- A project cannot parent a resource.
---! client user=10000000-0000-7000-8000-000000000001 expect=23514
+-- A project cannot parent a resource. The server sets the moved row's parent_kind, so the replica checks the old one and the server refuses at upload.
+--! client user=10000000-0000-7000-8000-000000000001 upload=23514
 UPDATE resource_moves SET parent_id = X'50000000000070008000000000000002' WHERE id = X'40000000000070008000000000000001';
 
 -- The move view cannot delete a folder.

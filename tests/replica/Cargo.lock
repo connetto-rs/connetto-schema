@@ -242,7 +242,7 @@ dependencies = [
 [[package]]
 name = "diesel-dynamic-schema"
 version = "0.3.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "diesel",
 ]
@@ -250,7 +250,7 @@ dependencies = [
 [[package]]
 name = "diesel_attribute_parser"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -260,7 +260,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.4.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "diesel_attribute_parser",
  "diesel_table_macro_syntax",
@@ -273,7 +273,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.4.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "syn 3.0.10",
 ]
@@ -297,7 +297,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 [[package]]
 name = "dsl_auto_type"
 version = "0.3.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "darling",
  "either",
@@ -592,7 +592,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "pg2sqlite"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#24a6278da4462e09f6ba8a1c9e36e1801c563698"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#3379da7c9406af21385a7ca4a6a15cb9d7ddfc1f"
 dependencies = [
  "diesel",
  "pg2sqlite-runtime",
@@ -609,7 +609,7 @@ dependencies = [
 [[package]]
 name = "pg2sqlite-runtime"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#24a6278da4462e09f6ba8a1c9e36e1801c563698"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#3379da7c9406af21385a7ca4a6a15cb9d7ddfc1f"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
@@ -1018,7 +1018,7 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#0747feeca17d09d257e708d14a667213350a5f88"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#0fb3034486b70d40581555c95776d8891cd3fbf5"
 dependencies = [
  "quine-mc_cluskey",
  "rpds",

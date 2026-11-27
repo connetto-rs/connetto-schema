@@ -12,10 +12,8 @@ INSERT INTO memberships (organization_id, user_id, state) VALUES (X'200000000000
 INSERT INTO organizations (id, created_by_id) VALUES (X'20000000000070008000000000000002', X'10000000000070008000000000000001');
 INSERT INTO resources (id, kind, organization_id) VALUES (X'20000000000070008000000000000002', 'organization', X'20000000000070008000000000000002');
 INSERT INTO memberships (organization_id, user_id, state) VALUES (X'20000000000070008000000000000002', X'10000000000070008000000000000001', 'active');
-INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind)
+INSERT INTO resources (organization_id, id, kind, parent_id, parent_kind)
   VALUES (X'20000000000070008000000000000002', X'40000000000070008000000000000003', 'folder', X'20000000000070008000000000000002', 'organization');
-INSERT INTO resources (id, kind, organization_id) VALUES
-  (X'40000000000070008000000000000003', 'folder', X'20000000000070008000000000000002');
 INSERT INTO invitations (id, organization_id, email, expires_at, invited_by_id) VALUES (X'71000000000070008000000000000002', X'20000000000070008000000000000002', 'member2@example.com', '2126-01-01 00:00:00.000000+00:00', X'10000000000070008000000000000001');
 
 -- The server accepts the invitation and delivers co-member rows.
@@ -33,7 +31,5 @@ INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role
 
 -- organization grant reaches nested ownable.
 --! client user=10000000-0000-7000-8000-000000000002 expect=ok
-INSERT INTO resource_parents (organization_id, id, resource_kind, parent_id, parent_kind) SELECT ancestor.organization_id, X'50000000000070008000000000000099', 'project', X'40000000000070008000000000000003', ancestor.kind FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000003';
-INSERT INTO resources (id, kind, organization_id) SELECT X'50000000000070008000000000000099', 'project', ancestor.organization_id FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000003';
-INSERT INTO ownables (id, organization_id, project_id, created_by_id) VALUES (X'60000000000070008000000000000099', X'20000000000070008000000000000002', X'50000000000070008000000000000099', X'10000000000070008000000000000002');
-INSERT INTO resources (id, kind, organization_id) VALUES (X'60000000000070008000000000000099', 'ownable', X'20000000000070008000000000000002');
+INSERT INTO resources (organization_id, id, kind, parent_id, parent_kind) SELECT ancestor.organization_id, X'50000000000070008000000000000099', 'project', X'40000000000070008000000000000003', ancestor.kind FROM resources ancestor WHERE ancestor.id = X'40000000000070008000000000000003';
+INSERT INTO resources (id, organization_id, parent_id, created_by_id, kind, parent_kind) VALUES (X'60000000000070008000000000000099', X'20000000000070008000000000000002', X'50000000000070008000000000000099', X'10000000000070008000000000000002', 'ownable', 'project');

@@ -68,9 +68,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.11.3"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02f0e023adb368345ce0ca6cdfc0f24a06554468d0e8503e14a0841de79bfa69"
+checksum = "95e45cf2980b2d467be49a9ed942c9179b701063a7ca3d037de7ee9bd67f8d66"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -176,9 +176,9 @@ checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
+checksum = "3e44f110d1777dc6559a51e7d45083945ded4f1bf3305494350f693b6d20b9c8"
 
 [[package]]
 name = "foldhash"
@@ -511,7 +511,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sql-traits",
- "sql-values",
+ "sql-values 0.6.0",
  "sqlparser",
  "thiserror",
 ]
@@ -522,7 +522,7 @@ version = "0.1.0"
 source = "git+https://github.com/connetto-rs/rls2fga?branch=main#3f818d8a23590c8b9c0e113b7ee2b83b1ecbf812"
 dependencies = [
  "serde",
- "sql-values",
+ "sql-values 0.6.0",
  "thiserror",
 ]
 
@@ -623,7 +623,7 @@ dependencies = [
  "once_cell",
  "recursive",
  "sha2",
- "sql-values",
+ "sql-values 0.7.0",
  "sqlparser",
  "sqlparser-canonicalize",
  "sqlparser-expr-eval",
@@ -639,7 +639,17 @@ dependencies = [
 [[package]]
 name = "sql-values"
 version = "0.6.0"
-source = "git+https://github.com/connetto-rs/sql-values?branch=main#bee0f26da9575f1f0ab38550e3188cb25590058e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ebd2b3f5bd737ea93a9613d26b51888475bfbb4255e6aebd049bd887d450ca1"
+dependencies = [
+ "jiff",
+ "thiserror",
+]
+
+[[package]]
+name = "sql-values"
+version = "0.7.0"
+source = "git+https://github.com/connetto-rs/sql-values?branch=main#04922306756c67f531fba5963aeb68c5a028569e"
 dependencies = [
  "jiff",
  "thiserror",
@@ -648,7 +658,7 @@ dependencies = [
 [[package]]
 name = "sqlippy"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/SQLippy?branch=main#dfe734b2dfa9db3b43884f1385697ab3c00bb3c8"
+source = "git+https://github.com/connetto-rs/SQLippy?branch=main#d9cdf8ad40756a02ac1bb05c7232bf89e4dbb32a"
 dependencies = [
  "heck",
  "inflection-rs",
@@ -689,7 +699,7 @@ source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#074
 dependencies = [
  "quine-mc_cluskey",
  "rpds",
- "sql-values",
+ "sql-values 0.7.0",
  "sqlparser",
 ]
 

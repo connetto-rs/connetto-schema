@@ -4,7 +4,7 @@ CREATE TABLE organizations (
   created_by_id UUID NOT NULL REFERENCES users (id),
   -- The founder membership writes the admin grant that stamps `founded_at`.
   founded_at TIMESTAMPTZ,
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) ON DELETE CASCADE
 );
 CREATE INDEX ON organizations (created_by_id);
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
@@ -43,7 +43,7 @@ CREATE TABLE teams (
   organization_id UUID NOT NULL REFERENCES organizations (id),
   parent_id UUID CHECK (parent_id <> id),
   UNIQUE (organization_id, id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind),
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) ON DELETE CASCADE,
   FOREIGN KEY (organization_id, parent_id) REFERENCES teams (organization_id, id)
 );
 CREATE INDEX ON teams (parent_id);

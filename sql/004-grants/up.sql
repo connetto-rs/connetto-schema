@@ -24,7 +24,7 @@ CREATE TABLE share_links (
   expires_at TIMESTAMPTZ,
   revoked_at TIMESTAMPTZ,
   created_by_id UUID NOT NULL REFERENCES users (id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) ON DELETE CASCADE
 );
 CREATE INDEX ON share_links (organization_id);
 CREATE INDEX ON share_links (created_by_id);

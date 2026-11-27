@@ -24,7 +24,7 @@ INSERT INTO grantees (id, kind) VALUES
 CREATE TABLE users (
   id UUID PRIMARY KEY,
   kind authz.grantee_kind NOT NULL DEFAULT 'user' CHECK (kind = 'user'),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) ON DELETE CASCADE
 );
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users FORCE ROW LEVEL SECURITY;

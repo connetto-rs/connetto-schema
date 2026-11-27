@@ -2,7 +2,7 @@
 SET search_path = public, test_tools;
 BEGIN;
 \ir ../fixture.sql
-SELECT plan(12);
+SELECT plan(17);
 
 SET ROLE identity_writer;
 INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001');
@@ -20,12 +20,24 @@ INSERT INTO share_links (id, organization_id, token_hash, created_by_id) VALUES
 RESET ROLE;
 SET CONSTRAINTS ALL DEFERRED;
 
--- A subtype row never outlives its grantee row past one statement, even inside a transaction deferring every constraint.
-SELECT throws_ok($statement$DELETE FROM grantees WHERE id = '10000000-0000-7000-8000-000000000001'$statement$, '23503', NULL, 'a user keeps its grantee row');
-SELECT throws_ok($statement$DELETE FROM grantees WHERE id = '20000000-0000-7000-8000-000000000001'$statement$, '23503', NULL, 'an organization keeps its grantee row');
-SELECT throws_ok($statement$DELETE FROM grantees WHERE id = '30000000-0000-7000-8000-000000000001'$statement$, '23503', NULL, 'a team keeps its grantee row');
-SELECT throws_ok($statement$DELETE FROM grantees WHERE id = '90000000-0000-7000-8000-000000000001'$statement$, '23503', NULL, 'an installation keeps its grantee row');
-SELECT throws_ok($statement$DELETE FROM grantees WHERE id = 'a0000000-0000-7000-8000-000000000001'$statement$, '23503', NULL, 'a share link keeps its grantee row');
+-- Deleting a grantee row deletes its subtype row with it, so a subtype row never outlives its grantee row.
+INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000002');
+INSERT INTO organizations (id, created_by_id) VALUES ('20000000-0000-7000-8000-000000000002', '10000000-0000-7000-8000-000000000001');
+INSERT INTO teams (id, organization_id) VALUES ('30000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001');
+INSERT INTO app_installations (id, app_id, organization_id) VALUES
+  ('90000000-0000-7000-8000-000000000002', '80000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001');
+INSERT INTO share_links (id, organization_id, token_hash, created_by_id) VALUES
+  ('a0000000-0000-7000-8000-000000000005', '20000000-0000-7000-8000-000000000001', decode(repeat('05', 32), 'hex'), '10000000-0000-7000-8000-000000000001');
+SELECT lives_ok($statement$DELETE FROM grantees WHERE id = '10000000-0000-7000-8000-000000000002'$statement$, 'a user grantee row deletes');
+SELECT is_empty($query$SELECT id FROM users WHERE id = '10000000-0000-7000-8000-000000000002'$query$, 'the user goes with its grantee row');
+SELECT lives_ok($statement$DELETE FROM grantees WHERE id = '20000000-0000-7000-8000-000000000002'$statement$, 'an organization grantee row deletes');
+SELECT is_empty($query$SELECT id FROM organizations WHERE id = '20000000-0000-7000-8000-000000000002'$query$, 'the organization goes with its grantee row');
+SELECT lives_ok($statement$DELETE FROM grantees WHERE id = '30000000-0000-7000-8000-000000000002'$statement$, 'a team grantee row deletes');
+SELECT is_empty($query$SELECT id FROM teams WHERE id = '30000000-0000-7000-8000-000000000002'$query$, 'the team goes with its grantee row');
+SELECT lives_ok($statement$DELETE FROM grantees WHERE id = '90000000-0000-7000-8000-000000000002'$statement$, 'an installation grantee row deletes');
+SELECT is_empty($query$SELECT id FROM app_installations WHERE id = '90000000-0000-7000-8000-000000000002'$query$, 'the installation goes with its grantee row');
+SELECT lives_ok($statement$DELETE FROM grantees WHERE id = 'a0000000-0000-7000-8000-000000000005'$statement$, 'a share link grantee row deletes');
+SELECT is_empty($query$SELECT id FROM share_links WHERE id = 'a0000000-0000-7000-8000-000000000005'$query$, 'the share link goes with its grantee row');
 SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 

@@ -13,7 +13,7 @@ CREATE TABLE app_installations (
   app_id UUID NOT NULL REFERENCES apps (id),
   organization_id UUID NOT NULL REFERENCES organizations (id),
   UNIQUE (organization_id, id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind) ON DELETE CASCADE
 );
 CREATE INDEX ON app_installations (app_id);
 ALTER TABLE app_installations ENABLE ROW LEVEL SECURITY;

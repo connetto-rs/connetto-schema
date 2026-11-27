@@ -140,6 +140,45 @@ LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_tem
     AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
 $$;
 
+CREATE FUNCTION authz.residual_read_containers() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
+  WITH RECURSIVE containers (id) AS (
+    SELECT resource.id FROM public.resources resource
+    WHERE resource.id IN (SELECT authz.granted_resources('reader'))
+      AND resource.kind IN ('folder', 'project', 'ownable')
+    UNION
+    SELECT child.id FROM containers JOIN public.resources child ON child.parent_id = containers.id
+    WHERE child.kind IN ('folder', 'project')
+  )
+  SELECT id FROM containers
+$$;
+
+CREATE FUNCTION authz.residual_read_reached() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT reached.id FROM authz.residual_read_containers() reached (id)
+  UNION
+  SELECT child.id FROM public.resources child
+  WHERE child.parent_id IN (SELECT authz.residual_read_containers())
+$$;
+
+CREATE FUNCTION authz.residual_read_resources() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT resource.id FROM public.resources resource
+  WHERE resource.id IN (SELECT authz.residual_read_reached())
+    AND ((SELECT authz.acting_installation_id()) IS NULL
+      OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds('reader')))
+    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+$$;
+
+CREATE FUNCTION authz.organization_resources_with(resource_kind authz.resource_kind) RETURNS SETOF UUID
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT resource.organization_id FROM public.resources resource
+  WHERE resource.kind = 'organization'
+    AND resource.id IN (SELECT authz.granted_resources('reader'))
+    AND ((SELECT authz.acting_installation_id()) IS NULL
+      OR (resource.organization_id, resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
+$$;
+
 CREATE FUNCTION authz.sharable_grants() RETURNS TABLE (resource_id UUID, role authz.role)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id, allowed.role
@@ -259,8 +298,13 @@ ALTER FUNCTION authz.pending_invitations() OWNER TO authz_owner;
 ALTER FUNCTION authz.blocking_organizations() OWNER TO authz_owner;
 ALTER FUNCTION authz.is_platform_operator() OWNER TO authz_owner;
 ALTER FUNCTION authz.refuse_repeatable_read() OWNER TO authz_owner;
+ALTER FUNCTION authz.residual_read_containers() OWNER TO authz_owner;
+ALTER FUNCTION authz.residual_read_reached() OWNER TO authz_owner;
+ALTER FUNCTION authz.residual_read_resources() OWNER TO authz_owner;
+ALTER FUNCTION authz.organization_resources_with(authz.resource_kind) OWNER TO authz_owner;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz FROM PUBLIC, app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA authz TO app;
 -- The walk returns resources before the installation's kind cap applies, so only definer helpers call it.
 REVOKE EXECUTE ON FUNCTION authz.containers_with(authz.role), authz.reached_with(authz.role) FROM app;
+REVOKE EXECUTE ON FUNCTION authz.residual_read_containers(), authz.residual_read_reached() FROM app;
 GRANT EXECUTE ON FUNCTION authz.refuse_repeatable_read() TO PUBLIC;

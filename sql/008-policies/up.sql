@@ -110,7 +110,13 @@ CREATE POLICY team_members_delete ON team_members FOR DELETE TO app
 GRANT SELECT, INSERT (id, kind, organization_id, parent_id, parent_kind, created_by_id, archived_at, writers_can_share), UPDATE (archived_at, writers_can_share), DELETE
   ON resources TO app;
 CREATE POLICY resources_select ON resources FOR SELECT TO app
-  USING ((id = ANY (ARRAY(SELECT authz.resources_with('reader'))))
+  USING ((kind = 'ownable'
+      AND organization_id = ANY (ARRAY(SELECT authz.organization_resources_with('ownable'))))
+    OR (kind IN ('organization', 'folder', 'project')
+      AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('reader')))
+      AND ((SELECT authz.acting_installation_id()) IS NULL
+        OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('reader'))))
+    OR id = ANY (ARRAY(SELECT authz.residual_read_resources()))
     OR (organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
       AND (SELECT authz.acting_installation_id()) IS NULL));
 CREATE POLICY resources_insert ON resources FOR INSERT TO app

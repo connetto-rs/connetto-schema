@@ -242,7 +242,7 @@ dependencies = [
 [[package]]
 name = "diesel-dynamic-schema"
 version = "0.3.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "diesel",
 ]
@@ -250,7 +250,7 @@ dependencies = [
 [[package]]
 name = "diesel_attribute_parser"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -260,7 +260,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.4.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "diesel_attribute_parser",
  "diesel_table_macro_syntax",
@@ -273,7 +273,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.4.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "syn 3.0.10",
 ]
@@ -297,7 +297,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 [[package]]
 name = "dsl_auto_type"
 version = "0.3.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#e598203dd02a6cc96b1d7521014fda9e588b532d"
+source = "git+https://github.com/diesel-rs/diesel?branch=upstream%2Fsqlite-table-valued-functions-dynamic#7f4e056b3714eae01ae52d306ffd5435086fcb7a"
 dependencies = [
  "darling",
  "either",
@@ -592,13 +592,13 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "pg2sqlite"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#8b0fe80116424497708d5f7fab57b4bfa261b9fa"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#3379da7c9406af21385a7ca4a6a15cb9d7ddfc1f"
 dependencies = [
  "diesel",
  "pg2sqlite-runtime",
  "recursive",
  "sql-traits",
- "sql-values",
+ "sql-values 0.7.0",
  "sqlparser",
  "sqlparser-plpgsql",
  "sqlstate",
@@ -609,11 +609,11 @@ dependencies = [
 [[package]]
 name = "pg2sqlite-runtime"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#8b0fe80116424497708d5f7fab57b4bfa261b9fa"
+source = "git+https://github.com/connetto-rs/pg2sqlite?branch=main#3379da7c9406af21385a7ca4a6a15cb9d7ddfc1f"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
- "sql-values",
+ "sql-values 0.7.0",
 ]
 
 [[package]]
@@ -803,7 +803,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sql-traits",
- "sql-values",
+ "sql-values 0.6.0",
  "sqlparser",
  "thiserror",
 ]
@@ -814,7 +814,7 @@ version = "0.1.0"
 source = "git+https://github.com/connetto-rs/rls2fga?branch=main#31d935e623d936529a534cfe1a0018b2b822c752"
 dependencies = [
  "serde",
- "sql-values",
+ "sql-values 0.6.0",
  "thiserror",
 ]
 
@@ -930,13 +930,13 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#85502c717afc0f186da360e7630ac910307fb7f9"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#023c4f40512825d93c0645959ece25e5ee3cfb28"
 dependencies = [
  "geometric-traits",
  "once_cell",
  "recursive",
  "sha2",
- "sql-values",
+ "sql-values 0.7.0",
  "sqlparser",
  "sqlparser-canonicalize",
  "sqlparser-expr-eval",
@@ -952,7 +952,17 @@ dependencies = [
 [[package]]
 name = "sql-values"
 version = "0.6.0"
-source = "git+https://github.com/connetto-rs/sql-values?branch=main#bee0f26da9575f1f0ab38550e3188cb25590058e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ebd2b3f5bd737ea93a9613d26b51888475bfbb4255e6aebd049bd887d450ca1"
+dependencies = [
+ "jiff",
+ "thiserror",
+]
+
+[[package]]
+name = "sql-values"
+version = "0.7.0"
+source = "git+https://github.com/connetto-rs/sql-values?branch=main#04922306756c67f531fba5963aeb68c5a028569e"
 dependencies = [
  "jiff",
  "thiserror",
@@ -986,7 +996,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#b3bc3df6fdba4600de281ab72fb9a7e4a0a1f0da"
 dependencies = [
  "log",
  "recursive",
@@ -1008,11 +1018,11 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#0747feeca17d09d257e708d14a667213350a5f88"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#0fb3034486b70d40581555c95776d8891cd3fbf5"
 dependencies = [
  "quine-mc_cluskey",
  "rpds",
- "sql-values",
+ "sql-values 0.7.0",
  "sqlparser",
 ]
 
@@ -1041,7 +1051,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#b3bc3df6fdba4600de281ab72fb9a7e4a0a1f0da"
 dependencies = [
  "proc-macro2",
  "quote",

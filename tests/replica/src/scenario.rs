@@ -11,9 +11,11 @@
 //!   [`crate::SETTINGS`]. `expect` is `ok` or the SQLSTATE both engines
 //!   refuse with. `upload=<SQLSTATE>` in its place is a write the replica
 //!   accepts and the server refuses at upload, after which the client reverts
-//!   to the server's rows. `diverges=grants,memberships` names tables whose
-//!   rows the replica may show otherwise than PostgreSQL until the server's
-//!   rows arrive.
+//!   to the server's rows. `replica=<SQLSTATE>` beside `expect=<SQLSTATE>`
+//!   is a write both engines refuse, the replica with its own SQLSTATE,
+//!   when a check the server makes first is left to the server.
+//!   `diverges=grants,memberships` names tables whose rows the replica may
+//!   show otherwise than PostgreSQL until the server's rows arrive.
 //!
 //! Both `expect=` and `upload=` accept per-major codes such as `17:23503,18:23001`, with an entry required for the connected server's major.
 //!
@@ -53,6 +55,9 @@ pub enum Step {
         principal: Principal,
         /// What the two engines answer.
         expect: Outcome,
+        /// The SQLSTATE the replica refuses with, when it differs from the
+        /// server's.
+        replica: Option<String>,
         /// The tables whose rows may differ until the server's rows arrive.
         diverges: Vec<String>,
         /// The SQLite statements.
@@ -239,6 +244,7 @@ impl Scenario {
                 Step::Client {
                     principal,
                     expect,
+                    replica: replica_sqlstate,
                     diverges,
                     sql,
                     ..
@@ -274,11 +280,16 @@ impl Scenario {
                     }
                     let replica = &mut replicas[index];
                     let replica_verdict = replica.write(&sqlite)?;
-                    let agrees = match expect {
-                        Outcome::RefusedAtUpload(_) => replica_verdict == Verdict::Accepted,
-                        Outcome::Accepted | Outcome::Refused(_) => {
+                    let agrees = match (expect, replica_sqlstate) {
+                        (Outcome::RefusedAtUpload(_), _) => replica_verdict == Verdict::Accepted,
+                        (Outcome::Refused(_), Some(code)) => matches!(
+                            &replica_verdict,
+                            Verdict::Refused { sqlstate, .. } if sqlstate == code
+                        ),
+                        (Outcome::Accepted | Outcome::Refused(_), None) => {
                             replica_verdict.agrees_with(&server_verdict)
                         }
+                        (Outcome::Accepted, Some(_)) => false,
                     };
                     if !agrees {
                         return failure(Mismatch::Verdict {
@@ -328,6 +339,7 @@ fn parse_step(line: usize, header: &str, sql: String, postgres_major: u16) -> Re
         }
         Some("client") => {
             let mut expect = None;
+            let mut replica = None;
             let mut diverges = Vec::new();
             let mut settings = Vec::new();
             for word in words {
@@ -349,6 +361,15 @@ fn parse_step(line: usize, header: &str, sql: String, postgres_major: u16) -> Re
                             .map_err(|error| error.to_string())?
                             .to_owned(),
                     ),
+                    ("replica", "ok") => {
+                        return Err("`replica=` names the SQLSTATE the replica refuses with".into());
+                    }
+                    ("replica", sqlstate) => {
+                        if replica.replace(sqlstate.to_owned()).is_some() {
+                            return Err("a client step takes one `replica=`".into());
+                        }
+                        continue;
+                    }
                     ("diverges", tables) => {
                         diverges.extend(tables.split(',').map(str::to_owned));
                         continue;
@@ -366,10 +387,14 @@ fn parse_step(line: usize, header: &str, sql: String, postgres_major: u16) -> Re
                 Principal::new(settings).map_err(|key| format!("`{key}` names no setting"))?;
             let expect =
                 expect.ok_or_else(|| "a client step needs `expect=` or `upload=`".to_owned())?;
+            if replica.is_some() && !matches!(expect, Outcome::Refused(_)) {
+                return Err("`replica=` goes beside `expect=<SQLSTATE>`".into());
+            }
             Ok(Step::Client {
                 line,
                 principal,
                 expect,
+                replica,
                 diverges,
                 sql,
             })
@@ -554,5 +579,28 @@ mod tests {
             panic!("client step");
         };
         assert_eq!(expect, super::Outcome::Accepted);
+    }
+
+    #[test]
+    fn replica_names_its_own_refusal_beside_a_refused_expectation() {
+        let super::Step::Client {
+            expect, replica, ..
+        } = super::parse_step(40, "client expect=23514 replica=44000", String::new(), 17).unwrap()
+        else {
+            panic!("client step");
+        };
+        assert_eq!(expect, super::Outcome::Refused("23514".into()));
+        assert_eq!(replica.as_deref(), Some("44000"));
+        for header in [
+            "client expect=ok replica=44000",
+            "client upload=23514 replica=44000",
+            "client expect=23514 replica=ok",
+            "client expect=23514 replica=44000 replica=23514",
+        ] {
+            assert!(
+                super::parse_step(40, header, String::new(), 17).is_err(),
+                "{header}"
+            );
+        }
     }
 }

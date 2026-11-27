@@ -43,12 +43,13 @@ DELETE FROM resource_moves WHERE id = X'40000000000070008000000000000002';
 --! client user=10000000-0000-7000-8000-000000000001 upload=23503
 UPDATE resource_moves SET parent_id = X'20000000000070008000000000000001' WHERE id = X'40000000000070008000000000000003';
 
--- A resource cycle is rejected.
---! client user=10000000-0000-7000-8000-000000000001 upload=23514
+-- A resource cycle is rejected. The cycle check runs only on the server, so the
+-- replica refuses through the check option of resource_moves instead.
+--! client user=10000000-0000-7000-8000-000000000001 expect=23514 replica=44000
 UPDATE resource_moves SET parent_id = X'40000000000070008000000000000002' WHERE id = X'40000000000070008000000000000001';
 
--- A folder can move to the organization.
---! client user=10000000-0000-7000-8000-000000000001 expect=ok
+-- A folder can move to the organization. The server sets the moved row's parent_kind.
+--! client user=10000000-0000-7000-8000-000000000001 expect=ok diverges=resources
 UPDATE resource_moves SET parent_id = X'20000000000070008000000000000001' WHERE id = X'40000000000070008000000000000002';
 
 --! client user=10000000-0000-7000-8000-000000000001 expect=ok

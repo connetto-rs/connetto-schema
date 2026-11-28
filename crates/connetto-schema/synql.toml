@@ -8,7 +8,7 @@ CREATE ROLE authz_writer NOLOGIN BYPASSRLS;
 
 CREATE SCHEMA authz;
 REVOKE ALL ON SCHEMA authz FROM PUBLIC;
-GRANT USAGE ON SCHEMA authz TO app, authz_owner;
+GRANT USAGE ON SCHEMA authz TO app, authz_owner, identity_writer;
 
 CREATE TYPE authz.role AS ENUM ('reader', 'writer', 'admin');
 CREATE TYPE authz.resource_kind AS ENUM ('organization', 'folder', 'project', 'ownable');
@@ -17,51 +17,62 @@ CREATE TYPE authz.membership_state AS ENUM ('active', 'deactivated');
 CREATE TYPE authz.team_role AS ENUM ('member', 'admin');
 CREATE TYPE authz.audit_operation AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 
-CREATE TABLE grantees (
-  id UUID PRIMARY KEY,
-  kind authz.grantee_kind NOT NULL,
-  UNIQUE (id, kind)
-);
-ALTER TABLE grantees ENABLE ROW LEVEL SECURITY;
-ALTER TABLE grantees FORCE ROW LEVEL SECURITY;
-
-CREATE UNIQUE INDEX ON grantees (kind) WHERE kind IN ('everyone', 'signed_in');
-INSERT INTO grantees (id, kind) VALUES
-  (gen_random_uuid(), 'everyone'), (gen_random_uuid(), 'signed_in');
-
-CREATE TABLE users (
-  id UUID PRIMARY KEY,
-  kind authz.grantee_kind NOT NULL DEFAULT 'user' CHECK (kind = 'user'),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
-);
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE users FORCE ROW LEVEL SECURITY;
-
+-- Holds no reference to its owner, which names it through `owned_namespace_id`, so a namespace outlives its owner.
 CREATE TABLE namespaces (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users (id) ON DELETE SET NULL,
   reserved BOOLEAN NOT NULL DEFAULT false,
-  CHECK (NOT reserved OR user_id IS NULL)
+  CHECK (reserved = (id = 'bc3cf2e2-768c-4af9-bf86-65f23378a212'))
 );
-CREATE UNIQUE INDEX ON namespaces (user_id);
 CREATE UNIQUE INDEX ON namespaces (reserved) WHERE reserved;
 ALTER TABLE namespaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE namespaces FORCE ROW LEVEL SECURITY;
 INSERT INTO namespaces (id, reserved) VALUES ('bc3cf2e2-768c-4af9-bf86-65f23378a212', true);
 
+-- The two audiences hold the reserved namespace, which no client creates in.
+CREATE TABLE grantees (
+  namespace_id UUID NOT NULL REFERENCES namespaces (id),
+  id UUID NOT NULL,
+  kind authz.grantee_kind NOT NULL CHECK (kind <> 'user'),
+  PRIMARY KEY (namespace_id, id),
+  UNIQUE (namespace_id, id, kind),
+  CHECK ((kind IN ('everyone', 'signed_in')) = (namespace_id = 'bc3cf2e2-768c-4af9-bf86-65f23378a212'))
+);
+ALTER TABLE grantees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE grantees FORCE ROW LEVEL SECURITY;
+
+CREATE UNIQUE INDEX ON grantees (kind) WHERE kind IN ('everyone', 'signed_in');
+INSERT INTO grantees (namespace_id, id, kind) VALUES
+  ('bc3cf2e2-768c-4af9-bf86-65f23378a212', gen_random_uuid(), 'everyone'),
+  ('bc3cf2e2-768c-4af9-bf86-65f23378a212', gen_random_uuid(), 'signed_in');
+
+-- `owned_namespace_id` is the namespace the user creates in, never the namespace of its own identity.
+CREATE TABLE users (
+  id UUID NOT NULL,
+  owned_namespace_id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (owned_namespace_id) REFERENCES namespaces (id) DEFERRABLE INITIALLY DEFERRED
+);
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users FORCE ROW LEVEL SECURITY;
+
 CREATE TABLE platform_operators (
-  id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE
+  id UUID NOT NULL,
+  PRIMARY KEY (id),
+  FOREIGN KEY (id) REFERENCES users (id) ON DELETE CASCADE
 );
 ALTER TABLE platform_operators ENABLE ROW LEVEL SECURITY;
 ALTER TABLE platform_operators FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE organizations (
-  id UUID PRIMARY KEY,
-  kind authz.grantee_kind NOT NULL DEFAULT 'organization' CHECK (kind = 'organization'),
-  created_by_id UUID NOT NULL REFERENCES users (id),
+  namespace_id UUID NOT NULL,
+  id UUID NOT NULL,
+  kind authz.grantee_kind GENERATED ALWAYS AS ('organization') STORED NOT NULL,
+  created_by_id UUID NOT NULL,
   -- The founder membership writes the admin grant that stamps `founded_at`.
   founded_at TIMESTAMPTZ,
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  PRIMARY KEY (namespace_id, id),
+  FOREIGN KEY (namespace_id, id, kind) REFERENCES grantees (namespace_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (created_by_id) REFERENCES users (id)
 );
 CREATE INDEX ON organizations (created_by_id);
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
@@ -69,12 +80,16 @@ ALTER TABLE organizations FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE invitations (
   id UUID PRIMARY KEY,
-  organization_id UUID NOT NULL REFERENCES organizations (id),
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
   email TEXT NOT NULL CHECK (email <> '' AND length(email) <= 320 AND email LIKE '%_@_%' AND email = lower(email)),
   expires_at TIMESTAMPTZ NOT NULL,
-  invited_by_id UUID NOT NULL REFERENCES users (id),
-  accepted_by_id UUID REFERENCES users (id),
-  UNIQUE (organization_id, id)
+  invited_by_id UUID NOT NULL,
+  accepted_by_id UUID,
+  UNIQUE (organization_namespace_id, organization_id, id),
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id),
+  FOREIGN KEY (invited_by_id) REFERENCES users (id),
+  FOREIGN KEY (accepted_by_id) REFERENCES users (id)
 );
 CREATE INDEX ON invitations (invited_by_id);
 CREATE INDEX ON invitations (accepted_by_id);
@@ -83,59 +98,76 @@ ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invitations FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE memberships (
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  user_id UUID NOT NULL REFERENCES users (id),
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  user_id UUID NOT NULL,
   state authz.membership_state NOT NULL,
   invitation_id UUID UNIQUE,
-  PRIMARY KEY (organization_id, user_id),
-  FOREIGN KEY (organization_id, invitation_id) REFERENCES invitations (organization_id, id) ON DELETE RESTRICT
+  PRIMARY KEY (organization_namespace_id, organization_id, user_id),
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id),
+  FOREIGN KEY (user_id) REFERENCES users (id),
+  FOREIGN KEY (organization_namespace_id, organization_id, invitation_id)
+    REFERENCES invitations (organization_namespace_id, organization_id, id) ON DELETE RESTRICT
 );
 CREATE INDEX ON memberships (user_id);
 ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE memberships FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE teams (
-  id UUID PRIMARY KEY,
-  kind authz.grantee_kind NOT NULL DEFAULT 'team' CHECK (kind = 'team'),
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  parent_id UUID CHECK (parent_id <> id),
-  UNIQUE (organization_id, id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind),
-  FOREIGN KEY (organization_id, parent_id) REFERENCES teams (organization_id, id)
+  namespace_id UUID NOT NULL,
+  id UUID NOT NULL,
+  kind authz.grantee_kind GENERATED ALWAYS AS ('team') STORED NOT NULL,
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  parent_namespace_id UUID,
+  parent_id UUID,
+  CHECK ((parent_namespace_id IS NULL) = (parent_id IS NULL)),
+  CHECK ((parent_namespace_id, parent_id) <> (namespace_id, id)),
+  PRIMARY KEY (namespace_id, id),
+  UNIQUE (organization_namespace_id, organization_id, namespace_id, id),
+  FOREIGN KEY (namespace_id, id, kind) REFERENCES grantees (namespace_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id),
+  FOREIGN KEY (organization_namespace_id, organization_id, parent_namespace_id, parent_id)
+    REFERENCES teams (organization_namespace_id, organization_id, namespace_id, id)
 );
-CREATE INDEX ON teams (parent_id);
+CREATE INDEX ON teams (parent_namespace_id, parent_id);
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams FORCE ROW LEVEL SECURITY;
 
 
 CREATE TABLE team_members (
+  team_namespace_id UUID NOT NULL,
   team_id UUID NOT NULL,
+  organization_namespace_id UUID NOT NULL,
   organization_id UUID NOT NULL,
   user_id UUID NOT NULL,
   team_role authz.team_role NOT NULL,
-  PRIMARY KEY (organization_id, team_id, user_id),
-  FOREIGN KEY (organization_id, team_id) REFERENCES teams (organization_id, id),
-  FOREIGN KEY (organization_id, user_id) REFERENCES memberships (organization_id, user_id) ON DELETE CASCADE
+  PRIMARY KEY (organization_namespace_id, organization_id, team_namespace_id, team_id, user_id),
+  FOREIGN KEY (organization_namespace_id, organization_id, team_namespace_id, team_id)
+    REFERENCES teams (organization_namespace_id, organization_id, namespace_id, id),
+  FOREIGN KEY (organization_namespace_id, organization_id, user_id)
+    REFERENCES memberships (organization_namespace_id, organization_id, user_id) ON DELETE CASCADE
 );
-CREATE INDEX ON team_members (user_id, organization_id);
+CREATE INDEX ON team_members (user_id, organization_namespace_id, organization_id);
 ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_members FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE resources (
   id UUID PRIMARY KEY,
   kind authz.resource_kind NOT NULL,
-  organization_id UUID NOT NULL REFERENCES organizations (id),
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
   parent_id UUID CHECK (parent_id <> id),
   parent_kind authz.resource_kind,
-  created_by_id UUID REFERENCES users (id),
+  created_by_id UUID,
   archived_at TIMESTAMPTZ,
   parent_archived BOOLEAN NOT NULL DEFAULT FALSE,
   inherits_archive BOOLEAN NOT NULL DEFAULT FALSE,
   archived BOOLEAN GENERATED ALWAYS AS (archived_at IS NOT NULL OR inherits_archive) STORED NOT NULL,
   writers_can_share BOOLEAN NOT NULL DEFAULT FALSE,
   UNIQUE (id, parent_id),
-  UNIQUE (organization_id, id, archived),
-  UNIQUE (organization_id, id, kind, archived),
+  UNIQUE (organization_namespace_id, organization_id, id, archived),
+  UNIQUE (organization_namespace_id, organization_id, id, kind, archived),
   CHECK ((kind = 'organization') = (id = organization_id)),
   CHECK ((kind = 'organization') = (parent_id IS NULL)),
   CHECK ((kind = 'organization') = (parent_kind IS NULL)),
@@ -147,8 +179,11 @@ CREATE TABLE resources (
   CHECK ((kind = 'ownable') = (created_by_id IS NOT NULL)),
   CHECK (inherits_archive = parent_archived),
   CHECK (kind <> 'organization' OR NOT parent_archived),
-  CONSTRAINT resources_parent_archive_fkey FOREIGN KEY (organization_id, parent_id, parent_kind, parent_archived)
-    REFERENCES resources (organization_id, id, kind, archived) ON UPDATE CASCADE ON DELETE CASCADE
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id),
+  FOREIGN KEY (created_by_id) REFERENCES users (id),
+  CONSTRAINT resources_parent_archive_fkey
+    FOREIGN KEY (organization_namespace_id, organization_id, parent_id, parent_kind, parent_archived)
+    REFERENCES resources (organization_namespace_id, organization_id, id, kind, archived) ON UPDATE CASCADE ON DELETE CASCADE
 );
 CREATE INDEX ON resources (parent_id);
 CREATE INDEX ON resources (created_by_id);
@@ -158,96 +193,149 @@ ALTER TABLE resources FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE grants (
   resource_id UUID NOT NULL,
+  organization_namespace_id UUID NOT NULL,
   organization_id UUID NOT NULL,
+  grantee_namespace_id UUID NOT NULL,
   grantee_id UUID NOT NULL,
   grantee_kind authz.grantee_kind NOT NULL,
   role authz.role NOT NULL,
   expires_at TIMESTAMPTZ,
   resource_archived BOOLEAN NOT NULL DEFAULT FALSE,
-  PRIMARY KEY (resource_id, grantee_id),
-  FOREIGN KEY (organization_id, resource_id, resource_archived) REFERENCES resources (organization_id, id, archived)
-    ON UPDATE CASCADE ON DELETE CASCADE,
-  FOREIGN KEY (grantee_id, grantee_kind) REFERENCES grantees (id, kind) ON DELETE CASCADE,
+  PRIMARY KEY (resource_id, grantee_namespace_id, grantee_id),
+  FOREIGN KEY (organization_namespace_id, organization_id, resource_id, resource_archived)
+    REFERENCES resources (organization_namespace_id, organization_id, id, archived) ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (grantee_namespace_id, grantee_id, grantee_kind) REFERENCES grantees (namespace_id, id, kind) ON DELETE CASCADE,
   CHECK (grantee_kind NOT IN ('everyone', 'signed_in', 'link') OR role < 'admin')
 );
-CREATE INDEX ON grants (grantee_id);
+CREATE INDEX ON grants (grantee_namespace_id, grantee_id);
 ALTER TABLE grants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE grants FORCE ROW LEVEL SECURITY;
 
+CREATE TABLE user_grants (
+  resource_id UUID NOT NULL,
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  role authz.role NOT NULL,
+  expires_at TIMESTAMPTZ,
+  resource_archived BOOLEAN NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (resource_id, user_id),
+  FOREIGN KEY (organization_namespace_id, organization_id, resource_id, resource_archived)
+    REFERENCES resources (organization_namespace_id, organization_id, id, archived) ON UPDATE CASCADE ON DELETE CASCADE
+);
+CREATE INDEX ON user_grants (user_id);
+ALTER TABLE user_grants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_grants FORCE ROW LEVEL SECURITY;
+
 CREATE TABLE share_links (
-  id UUID PRIMARY KEY,
-  kind authz.grantee_kind NOT NULL DEFAULT 'link' CHECK (kind = 'link'),
-  organization_id UUID NOT NULL REFERENCES organizations (id),
+  namespace_id UUID NOT NULL,
+  id UUID NOT NULL,
+  kind authz.grantee_kind GENERATED ALWAYS AS ('link') STORED NOT NULL,
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
   token_hash BYTEA NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
   expires_at TIMESTAMPTZ,
   revoked_at TIMESTAMPTZ,
-  created_by_id UUID NOT NULL REFERENCES users (id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  created_by_id UUID NOT NULL,
+  PRIMARY KEY (namespace_id, id),
+  FOREIGN KEY (namespace_id, id, kind) REFERENCES grantees (namespace_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id),
+  FOREIGN KEY (created_by_id) REFERENCES users (id)
 );
-CREATE INDEX ON share_links (organization_id);
+CREATE INDEX ON share_links (organization_namespace_id, organization_id);
 CREATE INDEX ON share_links (created_by_id);
 ALTER TABLE share_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE share_links FORCE ROW LEVEL SECURITY;
 
-CREATE TABLE organization_blocks (
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  principal_id UUID NOT NULL,
-  principal_kind authz.grantee_kind NOT NULL CHECK (principal_kind IN ('user', 'installation')),
+CREATE TABLE user_blocks (
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   expires_at TIMESTAMPTZ,
-  PRIMARY KEY (organization_id, principal_id),
-  FOREIGN KEY (principal_id, principal_kind) REFERENCES grantees (id, kind) ON DELETE CASCADE
+  PRIMARY KEY (organization_namespace_id, organization_id, user_id),
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id)
 );
-CREATE INDEX ON organization_blocks (principal_id);
-ALTER TABLE organization_blocks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE organization_blocks FORCE ROW LEVEL SECURITY;
+CREATE INDEX ON user_blocks (user_id);
+ALTER TABLE user_blocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_blocks FORCE ROW LEVEL SECURITY;
+
 
 CREATE TABLE apps (
   id UUID PRIMARY KEY,
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  name TEXT NOT NULL CHECK (name <> '' AND length(name) <= 200)
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  name TEXT NOT NULL CHECK (name <> '' AND length(name) <= 200),
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id)
 );
-CREATE INDEX ON apps (organization_id);
+CREATE INDEX ON apps (organization_namespace_id, organization_id);
 ALTER TABLE apps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE apps FORCE ROW LEVEL SECURITY;
 
+-- `owned_namespace_id` is the namespace the installation creates in when it acts alone.
 CREATE TABLE app_installations (
-  id UUID PRIMARY KEY,
-  kind authz.grantee_kind NOT NULL DEFAULT 'installation' CHECK (kind = 'installation'),
+  namespace_id UUID NOT NULL,
+  id UUID NOT NULL,
+  kind authz.grantee_kind GENERATED ALWAYS AS ('installation') STORED NOT NULL,
   app_id UUID NOT NULL REFERENCES apps (id),
-  organization_id UUID NOT NULL REFERENCES organizations (id),
-  UNIQUE (organization_id, id),
-  FOREIGN KEY (id, kind) REFERENCES grantees (id, kind)
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  owned_namespace_id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+  PRIMARY KEY (namespace_id, id),
+  UNIQUE (organization_namespace_id, organization_id, namespace_id, id),
+  FOREIGN KEY (namespace_id, id, kind) REFERENCES grantees (namespace_id, id, kind) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id),
+  FOREIGN KEY (owned_namespace_id) REFERENCES namespaces (id) DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX ON app_installations (app_id);
 ALTER TABLE app_installations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_installations FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE installation_permissions (
+  installation_namespace_id UUID NOT NULL,
   installation_id UUID NOT NULL,
+  organization_namespace_id UUID NOT NULL,
   organization_id UUID NOT NULL,
   kind authz.resource_kind NOT NULL,
   max_role authz.role NOT NULL,
-  PRIMARY KEY (organization_id, installation_id, kind),
-  FOREIGN KEY (organization_id, installation_id) REFERENCES app_installations (organization_id, id)
+  PRIMARY KEY (organization_namespace_id, organization_id, installation_namespace_id, installation_id, kind),
+  FOREIGN KEY (organization_namespace_id, organization_id, installation_namespace_id, installation_id)
+    REFERENCES app_installations (organization_namespace_id, organization_id, namespace_id, id)
 );
 ALTER TABLE installation_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE installation_permissions FORCE ROW LEVEL SECURITY;
+
+CREATE TABLE installation_blocks (
+  organization_namespace_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  installation_namespace_id UUID NOT NULL,
+  installation_id UUID NOT NULL,
+  expires_at TIMESTAMPTZ,
+  PRIMARY KEY (organization_namespace_id, organization_id, installation_namespace_id, installation_id),
+  FOREIGN KEY (organization_namespace_id, organization_id) REFERENCES organizations (namespace_id, id),
+  FOREIGN KEY (installation_namespace_id, installation_id) REFERENCES app_installations (namespace_id, id) ON DELETE CASCADE
+);
+CREATE INDEX ON installation_blocks (installation_namespace_id, installation_id);
+ALTER TABLE installation_blocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE installation_blocks FORCE ROW LEVEL SECURITY;
 
 -- No foreign keys, so the record outlives the rows, principals and organizations it names.
 CREATE TABLE audit_events (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   at TIMESTAMPTZ NOT NULL,
+  organization_namespace_id UUID NOT NULL,
   organization_id UUID NOT NULL,
   actor_id UUID,
   original_actor_id UUID,
+  installation_namespace_id UUID,
   installation_id UUID,
   table_name TEXT NOT NULL CHECK (table_name <> '' AND length(table_name) <= 63),
   operation authz.audit_operation NOT NULL,
   old_row JSONB,
   new_row JSONB,
+  CHECK ((installation_namespace_id IS NULL) = (installation_id IS NULL)),
   CHECK ((operation = 'INSERT') = (old_row IS NULL) AND (operation = 'DELETE') = (new_row IS NULL))
 );
-CREATE INDEX ON audit_events (organization_id, at);
+CREATE INDEX ON audit_events (organization_namespace_id, organization_id, at);
 ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_events FORCE ROW LEVEL SECURITY;
 
@@ -257,11 +345,13 @@ CREATE TABLE platform_audit_events (
   at TIMESTAMPTZ NOT NULL,
   actor_id UUID,
   original_actor_id UUID,
+  installation_namespace_id UUID,
   installation_id UUID,
   table_name TEXT NOT NULL CHECK (table_name <> '' AND length(table_name) <= 63),
   operation authz.audit_operation NOT NULL,
   old_row JSONB,
   new_row JSONB,
+  CHECK ((installation_namespace_id IS NULL) = (installation_id IS NULL)),
   CHECK ((operation = 'INSERT') = (old_row IS NULL) AND (operation = 'DELETE') = (new_row IS NULL))
 );
 CREATE INDEX ON platform_audit_events (at);
@@ -271,8 +361,8 @@ ALTER TABLE platform_audit_events FORCE ROW LEVEL SECURITY;
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE authz_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
-GRANT SELECT ON grantees, platform_operators, organizations, memberships, invitations, teams, team_members,
-  share_links, resources, grants, organization_blocks, installation_permissions TO authz_owner;
+GRANT SELECT ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_members,
+  share_links, resources, grants, user_grants, user_blocks, installation_blocks, app_installations, installation_permissions TO authz_owner;
 GRANT SELECT ON namespaces TO authz_owner;
 
 CREATE FUNCTION authz.caller_id() RETURNS UUID
@@ -280,15 +370,26 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('app.user_id', true), '')::uuid
 $$;
 
-CREATE FUNCTION authz.caller_namespace() RETURNS UUID
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT namespace.id FROM public.namespaces namespace
-  WHERE namespace.user_id = (SELECT authz.caller_id())
+-- A request names its installation by both settings or by neither.
+CREATE FUNCTION authz.acting_installation(OUT namespace_id UUID, OUT id UUID) RETURNS RECORD
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  namespace_id := NULLIF(current_setting('app.installation_namespace_id', true), '')::UUID;
+  id := NULLIF(current_setting('app.installation_id', true), '')::UUID;
+  IF (namespace_id IS NULL) <> (id IS NULL) THEN
+    RAISE EXCEPTION 'incomplete installation identity' USING ERRCODE = '22023';
+  END IF;
+END
 $$;
 
 CREATE FUNCTION authz.acting_installation_id() RETURNS UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT NULLIF(current_setting('app.installation_id', true), '')::uuid
+  SELECT id FROM authz.acting_installation()
+$$;
+
+CREATE FUNCTION authz.acting_installation_namespace_id() RETURNS UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT CASE WHEN id IS NOT NULL THEN namespace_id END FROM authz.acting_installation()
 $$;
 
 CREATE FUNCTION authz.original_actor_id() RETURNS UUID
@@ -296,9 +397,30 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('app.original_actor_id', true), '')::uuid
 $$;
 
-CREATE FUNCTION authz.link_ids() RETURNS UUID[]
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT string_to_array(NULLIF(current_setting('app.link_ids', true), ''), ',')::uuid[]
+-- A JSON array of objects, each naming one link by `namespace_id` and `id` together.
+CREATE FUNCTION authz.link_ids() RETURNS TABLE (namespace_id UUID, id UUID)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+  identities JSONB := NULLIF(current_setting('app.link_ids', true), '')::JSONB;
+  identity JSONB;
+BEGIN
+  IF identities IS NULL THEN
+    RETURN;
+  END IF;
+  IF jsonb_typeof(identities) <> 'array' THEN
+    RAISE EXCEPTION 'link identities require an array' USING ERRCODE = '22023';
+  END IF;
+  FOR identity IN SELECT value FROM jsonb_array_elements(identities) LOOP
+    IF jsonb_typeof(identity) <> 'object'
+      OR NULLIF(identity ->> 'namespace_id', '') IS NULL
+      OR NULLIF(identity ->> 'id', '') IS NULL THEN
+      RAISE EXCEPTION 'incomplete link identity' USING ERRCODE = '22023';
+    END IF;
+    namespace_id := (identity ->> 'namespace_id')::UUID;
+    id := (identity ->> 'id')::UUID;
+    RETURN NEXT;
+  END LOOP;
+END
 $$;
 
 CREATE FUNCTION authz.verified_email() RETURNS TEXT
@@ -311,81 +433,126 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS
   SELECT 20
 $$;
 
-CREATE FUNCTION authz.blocking_organizations() RETURNS SETOF UUID
+CREATE FUNCTION authz.blocking_organizations() RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT block.organization_id FROM public.organization_blocks block
-  WHERE block.principal_id IN ((SELECT authz.caller_id()), (SELECT authz.acting_installation_id()))
+  SELECT block.organization_namespace_id, block.organization_id FROM public.user_blocks block
+  WHERE block.user_id = (SELECT authz.caller_id())
+    AND (block.expires_at IS NULL OR block.expires_at > now())
+  UNION
+  SELECT block.organization_namespace_id, block.organization_id FROM public.installation_blocks block
+  WHERE block.installation_namespace_id = (SELECT authz.acting_installation_namespace_id())
+    AND block.installation_id = (SELECT authz.acting_installation_id())
     AND (block.expires_at IS NULL OR block.expires_at > now())
 $$;
 
-CREATE FUNCTION authz.capped_kinds(min_role authz.role)
-RETURNS TABLE (organization_id UUID, kind authz.resource_kind)
-LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT permission.organization_id, permission.kind FROM public.installation_permissions permission
-  WHERE permission.installation_id = (SELECT authz.acting_installation_id())
-    AND permission.max_role >= min_role
-    AND NOT (permission.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+-- The present user's namespace, or the installation's when it acts alone and its organization does not block it, so a
+-- user owning none creates nowhere.
+CREATE FUNCTION authz.caller_namespace() RETURNS SETOF UUID
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT person.owned_namespace_id FROM public.users person
+  WHERE person.id = (SELECT authz.caller_id())
+  UNION ALL
+  SELECT installation.owned_namespace_id FROM public.app_installations installation
+  WHERE installation.namespace_id = (SELECT authz.acting_installation_namespace_id())
+    AND installation.id = (SELECT authz.acting_installation_id())
+    AND (SELECT authz.caller_id()) IS NULL
+    AND NOT ((installation.organization_namespace_id, installation.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
-CREATE FUNCTION authz.member_organizations() RETURNS SETOF UUID
+CREATE FUNCTION authz.capped_kinds(min_role authz.role)
+RETURNS TABLE (organization_namespace_id UUID, organization_id UUID, kind authz.resource_kind)
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT permission.organization_namespace_id, permission.organization_id, permission.kind
+  FROM public.installation_permissions permission
+  WHERE permission.installation_namespace_id = (SELECT authz.acting_installation_namespace_id())
+    AND permission.installation_id = (SELECT authz.acting_installation_id())
+    AND permission.max_role >= min_role
+    AND NOT ((permission.organization_namespace_id, permission.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
+$$;
+
+CREATE FUNCTION authz.member_organizations() RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT membership.organization_id FROM public.memberships membership
+  SELECT membership.organization_namespace_id, membership.organization_id FROM public.memberships membership
   WHERE membership.user_id = (SELECT authz.caller_id()) AND membership.state = 'active'
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (membership.organization_id, 'organization'::authz.resource_kind)
+      OR (membership.organization_namespace_id, membership.organization_id, 'organization'::authz.resource_kind)
         IN (SELECT * FROM authz.capped_kinds('reader')))
-    AND NOT (membership.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+    AND NOT ((membership.organization_namespace_id, membership.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
-CREATE FUNCTION authz.caller_grantees() RETURNS SETOF UUID
+CREATE FUNCTION authz.caller_grantees() RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
-  WITH RECURSIVE reached (id) AS (
-    SELECT grantee.id FROM public.grantees grantee
-    WHERE grantee.id = (SELECT authz.caller_id()) AND grantee.kind IN ('user', 'installation')
+  WITH RECURSIVE reached (namespace_id, id) AS (
+    SELECT grantee.namespace_id, grantee.id FROM public.grantees grantee
+    WHERE grantee.namespace_id = (SELECT authz.acting_installation_namespace_id())
+      AND grantee.id = (SELECT authz.acting_installation_id()) AND grantee.kind = 'installation'
+      AND (SELECT authz.caller_id()) IS NULL
     UNION
-    SELECT grantee.id FROM public.grantees grantee WHERE grantee.kind = 'everyone'
+    SELECT grantee.namespace_id, grantee.id FROM public.grantees grantee WHERE grantee.kind = 'everyone'
     UNION
-    SELECT grantee.id FROM public.grantees grantee
-    WHERE grantee.kind = 'signed_in' AND (SELECT authz.caller_id()) IS NOT NULL
+    SELECT grantee.namespace_id, grantee.id FROM public.grantees grantee
+    WHERE grantee.kind = 'signed_in'
+      AND ((SELECT authz.caller_id()) IS NOT NULL OR (SELECT authz.acting_installation_id()) IS NOT NULL)
     UNION
-    SELECT organization FROM authz.member_organizations() organization
+    SELECT organization.namespace_id, organization.id FROM authz.member_organizations() organization
     UNION
-    SELECT member.team_id FROM public.team_members member
-    WHERE member.user_id = (SELECT authz.caller_id()) AND member.organization_id IN (SELECT authz.member_organizations())
+    SELECT member.team_namespace_id, member.team_id FROM public.team_members member
+    WHERE member.user_id = (SELECT authz.caller_id())
+      AND (member.organization_namespace_id, member.organization_id) IN (SELECT * FROM authz.member_organizations())
     UNION
-    SELECT link.id FROM public.share_links link
-    WHERE link.id = ANY (ARRAY(SELECT unnest(authz.link_ids())))
+    SELECT link.namespace_id, link.id FROM public.share_links link
+    WHERE (link.namespace_id, link.id) IN (SELECT * FROM authz.link_ids())
       AND link.revoked_at IS NULL AND (link.expires_at IS NULL OR link.expires_at > now())
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (link.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
-      AND NOT (link.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+        OR (link.organization_namespace_id, link.organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('reader')))
+      AND NOT ((link.organization_namespace_id, link.organization_id) IN (SELECT * FROM authz.blocking_organizations()))
     UNION
-    SELECT team.parent_id FROM public.teams team JOIN reached ON team.id = reached.id
+    SELECT team.parent_namespace_id, team.parent_id FROM public.teams team
+    JOIN reached ON team.namespace_id = reached.namespace_id AND team.id = reached.id
     WHERE team.parent_id IS NOT NULL
   )
-  SELECT id FROM reached
+  SELECT reached.namespace_id, reached.id FROM reached
 $$;
 
-CREATE FUNCTION authz.granted_resources(min_role authz.role) RETURNS SETOF UUID
+-- With audiences false, grants to everyone, signed_in and links are left out.
+CREATE FUNCTION authz.granted_resources(min_role authz.role, audiences BOOLEAN) RETURNS SETOF UUID
 LANGUAGE sql STABLE STRICT SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
   SELECT permission.resource_id FROM public.grants permission
-  WHERE permission.grantee_id IN (SELECT authz.caller_grantees())
+  WHERE (permission.grantee_namespace_id, permission.grantee_id) IN (SELECT * FROM authz.caller_grantees())
+    AND (audiences OR permission.grantee_kind NOT IN ('everyone', 'signed_in', 'link'))
     AND permission.role >= min_role AND (permission.expires_at IS NULL OR permission.expires_at > now())
-    AND NOT (permission.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+    AND NOT ((permission.organization_namespace_id, permission.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (permission.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
+      OR (permission.organization_namespace_id, permission.organization_id, 'organization'::authz.resource_kind)
+        IN (SELECT * FROM authz.capped_kinds('reader')))
+  UNION
+  SELECT permission.resource_id FROM public.user_grants permission
+  WHERE permission.user_id = (SELECT authz.caller_id())
+    AND permission.role >= min_role AND (permission.expires_at IS NULL OR permission.expires_at > now())
+    AND NOT ((permission.organization_namespace_id, permission.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
+    AND ((SELECT authz.acting_installation_id()) IS NULL
+      OR (permission.organization_namespace_id, permission.organization_id, 'organization'::authz.resource_kind)
+        IN (SELECT * FROM authz.capped_kinds('reader')))
     AND NOT EXISTS (
       SELECT 1 FROM public.memberships membership
-      WHERE membership.organization_id = permission.organization_id
-        AND membership.user_id = permission.grantee_id
+      WHERE membership.organization_namespace_id = permission.organization_namespace_id
+        AND membership.organization_id = permission.organization_id
+        AND membership.user_id = (SELECT authz.caller_id())
+        AND membership.user_id = permission.user_id
         AND membership.state = 'deactivated'
     )
 $$;
 
-CREATE FUNCTION authz.containers_with(min_role authz.role) RETURNS SETOF UUID
+CREATE FUNCTION authz.containers_with(min_role authz.role, audiences BOOLEAN) RETURNS SETOF UUID
 LANGUAGE sql STABLE STRICT SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE reached (id) AS (
-    SELECT granted.id FROM authz.granted_resources(min_role) granted (id)
+    SELECT granted.id FROM authz.granted_resources(min_role, audiences) granted (id)
     UNION
     SELECT child.id FROM reached JOIN public.resources child ON child.parent_id = reached.id
     WHERE child.kind IN ('folder', 'project')
@@ -393,28 +560,30 @@ LANGUAGE sql STABLE STRICT SECURITY DEFINER ROWS 10 SET search_path = pg_catalog
   SELECT id FROM reached
 $$;
 
-CREATE FUNCTION authz.reached_with(min_role authz.role) RETURNS SETOF UUID
+CREATE FUNCTION authz.reached_with(min_role authz.role, audiences BOOLEAN) RETURNS SETOF UUID
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT reached.id FROM authz.containers_with(min_role) reached (id)
+  SELECT reached.id FROM authz.containers_with(min_role, audiences) reached (id)
   UNION
   SELECT child.id FROM public.resources child
-  WHERE child.parent_id IN (SELECT authz.containers_with(min_role))
+  WHERE child.parent_id IN (SELECT authz.containers_with(min_role, audiences))
 $$;
 
 CREATE FUNCTION authz.resources_with(min_role authz.role) RETURNS SETOF UUID
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id FROM public.resources resource
-  WHERE resource.id IN (SELECT authz.reached_with(min_role))
+  WHERE resource.id IN (SELECT authz.reached_with(min_role, true))
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds(min_role)))
-    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+      OR (resource.organization_namespace_id, resource.organization_id, resource.kind)
+        IN (SELECT * FROM authz.capped_kinds(min_role)))
+    AND NOT ((resource.organization_namespace_id, resource.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
 CREATE FUNCTION authz.residual_read_containers() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER ROWS 10 SET search_path = pg_catalog, pg_temp AS $$
   WITH RECURSIVE containers (id) AS (
     SELECT resource.id FROM public.resources resource
-    WHERE resource.id IN (SELECT authz.granted_resources('reader'))
+    WHERE resource.id IN (SELECT authz.granted_resources('reader', true))
       AND resource.kind IN ('folder', 'project', 'ownable')
     UNION
     SELECT child.id FROM containers JOIN public.resources child ON child.parent_id = containers.id
@@ -436,19 +605,24 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id FROM public.resources resource
   WHERE resource.id IN (SELECT authz.residual_read_reached())
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds('reader')))
-    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+      OR (resource.organization_namespace_id, resource.organization_id, resource.kind)
+        IN (SELECT * FROM authz.capped_kinds('reader')))
+    AND NOT ((resource.organization_namespace_id, resource.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
-CREATE FUNCTION authz.organization_resources_with(resource_kind authz.resource_kind) RETURNS SETOF UUID
+CREATE FUNCTION authz.organization_resources_with(resource_kind authz.resource_kind)
+RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT resource.organization_id FROM public.resources resource
+  SELECT resource.organization_namespace_id, resource.organization_id FROM public.resources resource
   WHERE resource.kind = 'organization'
-    AND resource.id IN (SELECT authz.granted_resources('reader'))
+    AND resource.id IN (SELECT authz.granted_resources('reader', true))
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (resource.organization_id, resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
+      OR (resource.organization_namespace_id, resource.organization_id, resource_kind)
+        IN (SELECT * FROM authz.capped_kinds('reader')))
 $$;
 
+-- Writers share only through a grant naming them, so an audience or a link never mints a grant that outlives it.
 CREATE FUNCTION authz.sharable_grants() RETURNS TABLE (resource_id UUID, role authz.role)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id, allowed.role
@@ -458,7 +632,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT resource.id, allowed.role FROM public.resources resource
   CROSS JOIN (VALUES ('reader'::authz.role), ('writer'::authz.role)) allowed(role)
   WHERE resource.writers_can_share AND resource.id IN (SELECT authz.resources_with('writer'))
-    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+    AND resource.id IN (SELECT authz.reached_with('writer', false))
+    AND NOT ((resource.organization_namespace_id, resource.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
 CREATE FUNCTION authz.sharable_resources() RETURNS SETOF UUID
@@ -469,57 +645,73 @@ $$;
 CREATE FUNCTION authz.co_member_users() RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT membership.user_id FROM public.memberships membership
-  WHERE membership.organization_id IN (SELECT authz.member_organizations()) AND membership.state = 'active'
-    AND NOT (membership.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+  WHERE (membership.organization_namespace_id, membership.organization_id) IN (SELECT * FROM authz.member_organizations())
+    AND membership.state = 'active'
+    AND NOT ((membership.organization_namespace_id, membership.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
-CREATE FUNCTION authz.administered_teams() RETURNS SETOF UUID
+CREATE FUNCTION authz.administered_teams() RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT member.team_id FROM public.team_members member
-  JOIN public.memberships membership ON membership.organization_id = member.organization_id AND membership.user_id = member.user_id
+  SELECT member.team_namespace_id, member.team_id FROM public.team_members member
+  JOIN public.memberships membership
+    ON membership.organization_namespace_id = member.organization_namespace_id
+      AND membership.organization_id = member.organization_id
+      AND membership.user_id = member.user_id
   WHERE member.user_id = (SELECT authz.caller_id())
     AND member.team_role = 'admin' AND membership.state = 'active'
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (membership.organization_id, 'organization'::authz.resource_kind)
+      OR (membership.organization_namespace_id, membership.organization_id, 'organization'::authz.resource_kind)
         IN (SELECT * FROM authz.capped_kinds('admin')))
-    AND NOT (member.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+    AND NOT ((member.organization_namespace_id, member.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
-CREATE FUNCTION authz.team_admin_organizations() RETURNS SETOF UUID
+CREATE FUNCTION authz.team_admin_organizations() RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT team.organization_id FROM public.teams team WHERE team.id IN (SELECT authz.administered_teams())
+  SELECT team.organization_namespace_id, team.organization_id FROM public.teams team
+  WHERE (team.namespace_id, team.id) IN (SELECT * FROM authz.administered_teams())
 $$;
 
-CREATE FUNCTION authz.organizations_reaching(min_role authz.role) RETURNS SETOF UUID
+CREATE FUNCTION authz.organizations_reaching(min_role authz.role) RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT resource.organization_id FROM public.resources resource WHERE resource.id IN (SELECT authz.resources_with(min_role))
-    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+  SELECT resource.organization_namespace_id, resource.organization_id FROM public.resources resource
+  WHERE resource.id IN (SELECT authz.resources_with(min_role))
+    AND NOT ((resource.organization_namespace_id, resource.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
-CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS SETOF UUID
+CREATE FUNCTION authz.organizations_with(min_role authz.role) RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT resource.organization_id FROM public.resources resource
-  WHERE resource.kind = 'organization' AND resource.id IN (SELECT authz.granted_resources(min_role))
+  SELECT resource.organization_namespace_id, resource.organization_id FROM public.resources resource
+  WHERE resource.kind = 'organization' AND resource.id IN (SELECT authz.granted_resources(min_role, true))
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (resource.organization_id, resource.kind) IN (SELECT * FROM authz.capped_kinds(min_role)))
-    AND NOT (resource.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+      OR (resource.organization_namespace_id, resource.organization_id, resource.kind)
+        IN (SELECT * FROM authz.capped_kinds(min_role)))
+    AND NOT ((resource.organization_namespace_id, resource.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
-CREATE FUNCTION authz.founded_organizations() RETURNS SETOF UUID
+CREATE FUNCTION authz.founded_organizations() RETURNS TABLE (namespace_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT organization.id FROM public.organizations organization
+  SELECT organization.namespace_id, organization.id FROM public.organizations organization
   WHERE organization.created_by_id = (SELECT authz.caller_id()) AND organization.founded_at IS NULL
     AND (SELECT authz.acting_installation_id()) IS NULL
-    AND NOT (organization.id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+    AND NOT ((organization.namespace_id, organization.id) IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
-CREATE FUNCTION authz.pending_invitations() RETURNS TABLE (organization_id UUID, id UUID)
+CREATE FUNCTION authz.pending_invitations()
+RETURNS TABLE (organization_namespace_id UUID, organization_id UUID, id UUID)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-  SELECT invitation.organization_id, invitation.id FROM public.invitations invitation
-  WHERE invitation.email = (SELECT authz.verified_email()) AND invitation.accepted_by_id IS NULL AND invitation.expires_at > now()
+  SELECT invitation.organization_namespace_id, invitation.organization_id, invitation.id
+  FROM public.invitations invitation
+  WHERE invitation.email = (SELECT authz.verified_email()) AND invitation.accepted_by_id IS NULL
+    AND invitation.expires_at > now()
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (invitation.organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))
-    AND NOT (invitation.organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
+      OR (invitation.organization_namespace_id, invitation.organization_id, 'organization'::authz.resource_kind)
+        IN (SELECT * FROM authz.capped_kinds('reader')))
+    AND NOT ((invitation.organization_namespace_id, invitation.organization_id)
+      IN (SELECT * FROM authz.blocking_organizations()))
 $$;
 
 -- An installation never acts with its user's platform authority.
@@ -543,17 +735,19 @@ END
 $$;
 
 ALTER FUNCTION authz.caller_id() OWNER TO authz_owner;
-ALTER FUNCTION authz.caller_namespace() OWNER TO authz_owner;
+ALTER FUNCTION authz.acting_installation() OWNER TO authz_owner;
 ALTER FUNCTION authz.acting_installation_id() OWNER TO authz_owner;
+ALTER FUNCTION authz.acting_installation_namespace_id() OWNER TO authz_owner;
+ALTER FUNCTION authz.caller_namespace() OWNER TO authz_owner;
 ALTER FUNCTION authz.original_actor_id() OWNER TO authz_owner;
 ALTER FUNCTION authz.link_ids() OWNER TO authz_owner;
 ALTER FUNCTION authz.verified_email() OWNER TO authz_owner;
 ALTER FUNCTION authz.max_tree_depth() OWNER TO authz_owner;
 ALTER FUNCTION authz.caller_grantees() OWNER TO authz_owner;
 ALTER FUNCTION authz.capped_kinds(authz.role) OWNER TO authz_owner;
-ALTER FUNCTION authz.granted_resources(authz.role) OWNER TO authz_owner;
-ALTER FUNCTION authz.containers_with(authz.role) OWNER TO authz_owner;
-ALTER FUNCTION authz.reached_with(authz.role) OWNER TO authz_owner;
+ALTER FUNCTION authz.granted_resources(authz.role, BOOLEAN) OWNER TO authz_owner;
+ALTER FUNCTION authz.containers_with(authz.role, BOOLEAN) OWNER TO authz_owner;
+ALTER FUNCTION authz.reached_with(authz.role, BOOLEAN) OWNER TO authz_owner;
 ALTER FUNCTION authz.resources_with(authz.role) OWNER TO authz_owner;
 ALTER FUNCTION authz.sharable_grants() OWNER TO authz_owner;
 ALTER FUNCTION authz.sharable_resources() OWNER TO authz_owner;
@@ -574,146 +768,164 @@ ALTER FUNCTION authz.residual_read_resources() OWNER TO authz_owner;
 ALTER FUNCTION authz.organization_resources_with(authz.resource_kind) OWNER TO authz_owner;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA authz FROM PUBLIC, app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA authz TO app;
+GRANT EXECUTE ON FUNCTION authz.caller_id() TO identity_writer;
 -- The walk returns resources before the installation's kind cap applies, so only definer helpers call it.
-REVOKE EXECUTE ON FUNCTION authz.containers_with(authz.role), authz.reached_with(authz.role) FROM app;
+REVOKE EXECUTE ON FUNCTION authz.containers_with(authz.role, BOOLEAN), authz.reached_with(authz.role, BOOLEAN) FROM app;
 REVOKE EXECUTE ON FUNCTION authz.residual_read_containers(), authz.residual_read_reached() FROM app;
 GRANT EXECUTE ON FUNCTION authz.refuse_repeatable_read() TO PUBLIC;
 
-REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_members, resources, grants, share_links, organization_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
+REVOKE ALL ON grantees, users, platform_operators, organizations, memberships, invitations, teams, team_members, resources, grants, user_grants, share_links, user_blocks, installation_blocks, apps, app_installations, installation_permissions, audit_events, platform_audit_events FROM PUBLIC, app, identity_writer;
 REVOKE ALL ON namespaces FROM PUBLIC, app, identity_writer;
 
 GRANT SELECT ON namespaces TO app;
 CREATE POLICY namespaces_select ON namespaces FOR SELECT TO app
-  USING (user_id = (SELECT authz.caller_id()) OR reserved);
+  USING (id = (SELECT authz.caller_namespace()) OR reserved);
 
 -- The replica runs authz.caller_grantees() itself, so the caller's own grantee rows reach it.
--- Every other grantee is readable with the user, team, organization, link or installation it stands for.
+-- Every other grantee is readable with the team, organization, link or installation it stands for.
 GRANT SELECT ON grantees TO app;
 CREATE POLICY grantees_select ON grantees FOR SELECT TO app
-  USING (id = ANY (ARRAY(SELECT authz.caller_grantees()))
-    OR (kind = 'user' AND id = ANY (ARRAY(SELECT person.id FROM users person)))
-    OR (kind = 'team' AND id = ANY (ARRAY(SELECT team.id FROM teams team)))
-    OR (kind = 'organization' AND id = ANY (ARRAY(SELECT organization.id FROM organizations organization)))
-    OR (kind = 'link' AND id = ANY (ARRAY(SELECT link.id FROM share_links link)))
-    OR (kind = 'installation' AND id = ANY (ARRAY(SELECT installation.id FROM app_installations installation))));
+  USING ((namespace_id, id) IN (SELECT * FROM authz.caller_grantees())
+    OR (kind = 'team' AND (namespace_id, id) IN (SELECT team.namespace_id, team.id FROM teams team))
+    OR (kind = 'organization'
+      AND (namespace_id, id) IN (SELECT organization.namespace_id, organization.id FROM organizations organization))
+    OR (kind = 'link' AND (namespace_id, id) IN (SELECT link.namespace_id, link.id FROM share_links link))
+    OR (kind = 'installation'
+      AND (namespace_id, id) IN (SELECT installation.namespace_id, installation.id FROM app_installations installation)));
 
 GRANT SELECT ON users TO app;
-GRANT SELECT, INSERT ON users TO identity_writer;
+GRANT SELECT, INSERT (id) ON users TO identity_writer;
 CREATE POLICY users_select ON users FOR SELECT TO app
-  USING (id = (SELECT authz.caller_id())
-    OR id = ANY (ARRAY(SELECT authz.co_member_users())));
+  USING ((id = (SELECT authz.caller_id()))
+    OR id IN (SELECT authz.co_member_users()));
 CREATE POLICY users_identity_select ON users FOR SELECT TO identity_writer
-  USING (TRUE);
+  USING (id = (SELECT authz.caller_id()));
+-- The identity service provisions only the subject it authenticated for the session.
 CREATE POLICY users_insert ON users FOR INSERT TO identity_writer
-  WITH CHECK (TRUE);
+  WITH CHECK (id = (SELECT authz.caller_id()));
 
 GRANT SELECT, DELETE ON organizations TO app;
-GRANT INSERT (id, created_by_id) ON organizations TO app;
+GRANT INSERT (namespace_id, id, created_by_id) ON organizations TO app;
 CREATE POLICY organizations_select ON organizations FOR SELECT TO app
-  USING ((id = ANY (ARRAY(SELECT authz.organizations_reaching('reader'))))
-    OR (id = ANY (ARRAY(SELECT authz.member_organizations())))
-    OR (id = ANY (ARRAY(SELECT authz.founded_organizations())) AND (SELECT authz.acting_installation_id()) IS NULL)
-    OR (id = ANY (ARRAY(SELECT invitation.organization_id FROM invitations invitation
-      WHERE invitation.accepted_by_id IS NULL AND invitation.expires_at > now()))));
+  USING ((namespace_id, id) IN (SELECT * FROM authz.organizations_reaching('reader'))
+    OR (namespace_id, id) IN (SELECT * FROM authz.member_organizations())
+    OR ((namespace_id, id) IN (SELECT * FROM authz.founded_organizations())
+      AND (SELECT authz.acting_installation_id()) IS NULL)
+    OR (namespace_id, id) IN (SELECT invitation.organization_namespace_id, invitation.organization_id
+      FROM invitations invitation WHERE invitation.accepted_by_id IS NULL AND invitation.expires_at > now()));
 CREATE POLICY organizations_delete ON organizations FOR DELETE TO app
-  USING (id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((namespace_id, id) IN (SELECT * FROM authz.organizations_with('admin')));
 CREATE POLICY organizations_insert ON organizations FOR INSERT TO app
-  WITH CHECK (created_by_id = (SELECT authz.caller_id()) AND (SELECT authz.acting_installation_id()) IS NULL);
+  WITH CHECK (namespace_id = (SELECT authz.caller_namespace())
+        AND created_by_id = (SELECT authz.caller_id()) AND (SELECT authz.acting_installation_id()) IS NULL);
 
 GRANT SELECT, INSERT, UPDATE (state), DELETE ON memberships TO app;
 CREATE POLICY memberships_select ON memberships FOR SELECT TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
-    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.member_organizations())
+    OR (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
     OR (user_id = (SELECT authz.caller_id())
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
+        OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('reader')))));
 -- Members join only by founding or by accepting an invitation.
 CREATE POLICY memberships_insert ON memberships FOR INSERT TO app
-  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
-      AND user_id = (SELECT authz.caller_id()) AND state = 'active' AND invitation_id IS NULL
+  WITH CHECK (((organization_namespace_id, organization_id) IN (SELECT * FROM authz.founded_organizations())
+      AND user_id = (SELECT authz.caller_id())
+      AND state = 'active' AND invitation_id IS NULL
       AND (SELECT authz.acting_installation_id()) IS NULL)
-    OR ((organization_id, invitation_id) IN (SELECT * FROM authz.pending_invitations())
-      AND user_id = (SELECT authz.caller_id()) AND state = 'active'
+    OR ((organization_namespace_id, organization_id, invitation_id) IN (SELECT * FROM authz.pending_invitations())
+      AND user_id = (SELECT authz.caller_id())
+      AND state = 'active'
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer')))));
+        OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('writer')))));
 CREATE POLICY memberships_update ON memberships FOR UPDATE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')))
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 CREATE POLICY memberships_delete ON memberships FOR DELETE TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (user_id = (SELECT authz.caller_id()) AND state = 'active'
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR (user_id = (SELECT authz.caller_id())
+      AND state = 'active'
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer')))));
+        OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('writer')))));
 
 GRANT SELECT, DELETE ON invitations TO app;
-GRANT INSERT (id, organization_id, email, expires_at, invited_by_id) ON invitations TO app;
+GRANT INSERT (id, organization_namespace_id, organization_id, email, expires_at, invited_by_id)
+  ON invitations TO app;
 CREATE POLICY invitations_select ON invitations FOR SELECT TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
     OR (email = (SELECT authz.verified_email())
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
+        OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY invitations_insert ON invitations FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))) AND invited_by_id = (SELECT authz.caller_id()));
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+        AND invited_by_id = (SELECT authz.caller_id()));
 CREATE POLICY invitations_delete ON invitations FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 
-GRANT SELECT, INSERT, UPDATE (parent_id), DELETE ON teams TO app;
+GRANT SELECT, INSERT, UPDATE (parent_namespace_id, parent_id), DELETE ON teams TO app;
 CREATE POLICY teams_select ON teams FOR SELECT TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
-    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.member_organizations())
+    OR (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 CREATE POLICY teams_insert ON teams FOR INSERT TO app
-  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (parent_id = ANY (ARRAY(SELECT authz.administered_teams()))
-      AND organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
+  WITH CHECK (namespace_id = (SELECT authz.caller_namespace())
+    AND ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+      OR ((parent_namespace_id, parent_id) IN (SELECT * FROM authz.administered_teams())
+        AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.team_admin_organizations()))));
 CREATE POLICY teams_delete ON teams FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 CREATE POLICY teams_update ON teams FOR UPDATE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')))
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 
 GRANT SELECT, INSERT, UPDATE (team_role), DELETE ON team_members TO app;
 CREATE POLICY team_members_select ON team_members FOR SELECT TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.member_organizations())))
-    OR (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.member_organizations())
+    OR (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 CREATE POLICY team_members_insert ON team_members FOR INSERT TO app
-  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))
-      AND organization_id = ANY (ARRAY(SELECT authz.team_admin_organizations()))));
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR ((team_namespace_id, team_id) IN (SELECT * FROM authz.administered_teams())
+      AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.team_admin_organizations())));
 CREATE POLICY team_members_update ON team_members FOR UPDATE TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))))
-  WITH CHECK ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR (team_namespace_id, team_id) IN (SELECT * FROM authz.administered_teams()))
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR (team_namespace_id, team_id) IN (SELECT * FROM authz.administered_teams()));
 CREATE POLICY team_members_delete ON team_members FOR DELETE TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR (team_id = ANY (ARRAY(SELECT authz.administered_teams()))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR (team_namespace_id, team_id) IN (SELECT * FROM authz.administered_teams()));
 
-GRANT SELECT, INSERT (id, kind, organization_id, parent_id, parent_kind, created_by_id, archived_at, writers_can_share), UPDATE (archived_at, writers_can_share), DELETE
+GRANT SELECT, INSERT (id, kind, organization_namespace_id, organization_id, parent_id, parent_kind,
+    created_by_id, archived_at, writers_can_share),
+  UPDATE (archived_at, writers_can_share), DELETE
   ON resources TO app;
 CREATE POLICY resources_select ON resources FOR SELECT TO app
   USING ((kind = 'ownable'
-      AND organization_id = ANY (ARRAY(SELECT authz.organization_resources_with('ownable'))))
+      AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organization_resources_with('ownable')))
     OR (kind IN ('organization', 'folder', 'project')
-      AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('reader')))
+      AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('reader'))
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('reader'))))
+        OR (organization_namespace_id, organization_id, kind) IN (SELECT * FROM authz.capped_kinds('reader'))))
     OR id = ANY (ARRAY(SELECT authz.residual_read_resources()))
-    OR (organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
+    OR ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.founded_organizations())
       AND (SELECT authz.acting_installation_id()) IS NULL));
 CREATE POLICY resources_insert ON resources FOR INSERT TO app
   WITH CHECK ((kind IN ('folder', 'project')
-      AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('admin')))
+      AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_reaching('admin'))
       AND parent_id = ANY (ARRAY(SELECT authz.resources_with('admin')))
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('admin'))))
+        OR (organization_namespace_id, organization_id, kind) IN (SELECT * FROM authz.capped_kinds('admin'))))
     OR (kind = 'ownable'
       AND archived_at IS NULL AND writers_can_share = FALSE
-      AND organization_id = ANY (ARRAY(SELECT authz.organizations_reaching('writer')))
+      AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_reaching('writer'))
       AND parent_id = ANY (ARRAY(SELECT authz.resources_with('writer')))
-      AND created_by_id = (SELECT authz.caller_id())
+            AND created_by_id = (SELECT authz.caller_id())
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, kind) IN (SELECT * FROM authz.capped_kinds('writer'))))
-    OR (kind = 'organization' AND organization_id = ANY (ARRAY(SELECT authz.founded_organizations()))
+        OR (organization_namespace_id, organization_id, kind) IN (SELECT * FROM authz.capped_kinds('writer'))))
+    OR (kind = 'organization'
+      AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.founded_organizations())
       AND (SELECT authz.acting_installation_id()) IS NULL));
 CREATE POLICY resources_update ON resources FOR UPDATE TO app
   USING (id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
@@ -721,7 +933,7 @@ CREATE POLICY resources_update ON resources FOR UPDATE TO app
 CREATE POLICY resources_delete ON resources FOR DELETE TO app
   USING ((kind IN ('organization', 'ownable') AND id = ANY (ARRAY(SELECT authz.resources_with('admin'))))
     OR (kind IN ('folder', 'project') AND id = ANY (ARRAY(SELECT authz.resources_with('admin')))
-      AND organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))));
+      AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))));
 
 CREATE VIEW resource_moves WITH (check_option = cascaded, security_barrier = true) AS
 SELECT id, kind, parent_id, parent_kind
@@ -739,15 +951,19 @@ ALTER VIEW resource_moves OWNER TO authz_writer;
 GRANT UPDATE (parent_id) ON resources TO authz_writer;
 GRANT SELECT, UPDATE (parent_id) ON resource_moves TO app;
 
-GRANT SELECT, INSERT (resource_id, organization_id, grantee_id, grantee_kind, role, expires_at), UPDATE (role, expires_at), DELETE
+GRANT SELECT,
+  INSERT (resource_id, organization_namespace_id, organization_id, grantee_namespace_id, grantee_id, grantee_kind, role,
+    expires_at),
+  UPDATE (role, expires_at), DELETE
   ON grants TO app;
 CREATE POLICY grants_select ON grants FOR SELECT TO app
   USING (resource_id = ANY (ARRAY(SELECT authz.sharable_resources()))
-    OR (grantee_id = ANY (ARRAY(SELECT authz.caller_grantees()))
+    OR ((grantee_namespace_id, grantee_id) IN (SELECT * FROM authz.caller_grantees())
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
+        OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY grants_insert ON grants FOR INSERT TO app
-  WITH CHECK (grantee_id IN (SELECT grantee.id FROM grantees grantee)
+  WITH CHECK ((grantee_namespace_id, grantee_id) IN (SELECT grantee.namespace_id, grantee.id FROM grantees grantee)
     AND (resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
 CREATE POLICY grants_update ON grants FOR UPDATE TO app
   USING ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share))
@@ -755,80 +971,128 @@ CREATE POLICY grants_update ON grants FOR UPDATE TO app
 CREATE POLICY grants_delete ON grants FOR DELETE TO app
   USING ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
 
+GRANT SELECT,
+  INSERT (resource_id, organization_namespace_id, organization_id, user_id, role,
+    expires_at),
+  UPDATE (role, expires_at), DELETE
+  ON user_grants TO app;
+CREATE POLICY user_grants_select ON user_grants FOR SELECT TO app
+  USING (resource_id = ANY (ARRAY(SELECT authz.sharable_resources()))
+    OR (user_id = (SELECT authz.caller_id())
+      AND ((SELECT authz.acting_installation_id()) IS NULL
+        OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('reader')))));
+-- A sharer grants others, never itself, so access held through a team or an audience ends with it.
+CREATE POLICY user_grants_insert ON user_grants FOR INSERT TO app
+  WITH CHECK (user_id IN (SELECT person.id FROM users person)
+    AND user_id IS DISTINCT FROM (SELECT authz.caller_id())
+    AND (resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
+CREATE POLICY user_grants_update ON user_grants FOR UPDATE TO app
+  USING (user_id IS DISTINCT FROM (SELECT authz.caller_id())
+    AND (resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share))
+  WITH CHECK (user_id IS DISTINCT FROM (SELECT authz.caller_id())
+    AND (resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
+CREATE POLICY user_grants_delete ON user_grants FOR DELETE TO app
+  USING ((resource_id, role) IN (SELECT share.resource_id, share.role FROM authz.sharable_grants() share));
+
 GRANT SELECT, INSERT, UPDATE (revoked_at, expires_at), DELETE ON share_links TO app;
 CREATE POLICY share_links_select ON share_links FOR SELECT TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
     OR (created_by_id = (SELECT authz.caller_id())
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('reader')))));
+        OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('reader')))));
 CREATE POLICY share_links_insert ON share_links FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.member_organizations())) AND created_by_id = (SELECT authz.caller_id())
+  WITH CHECK (namespace_id = (SELECT authz.caller_namespace())
+    AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.member_organizations())
+    AND created_by_id = (SELECT authz.caller_id())
     AND ((SELECT authz.acting_installation_id()) IS NULL
-      OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer'))));
+      OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+        IN (SELECT * FROM authz.capped_kinds('writer'))));
 CREATE POLICY share_links_update ON share_links FOR UPDATE TO app
   USING (revoked_at IS NULL
-    AND (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+    AND ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
       OR (created_by_id = (SELECT authz.caller_id())
-        AND organization_id = ANY (ARRAY(SELECT authz.member_organizations()))
+        AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.member_organizations())
         AND ((SELECT authz.acting_installation_id()) IS NULL
-          OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer'))))))
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+          OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+            IN (SELECT * FROM authz.capped_kinds('writer'))))))
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
     OR (created_by_id = (SELECT authz.caller_id())
-      AND organization_id = ANY (ARRAY(SELECT authz.member_organizations()))
+      AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.member_organizations())
       AND ((SELECT authz.acting_installation_id()) IS NULL
-        OR (organization_id, 'organization'::authz.resource_kind) IN (SELECT * FROM authz.capped_kinds('writer')))));
+        OR (organization_namespace_id, organization_id, 'organization'::authz.resource_kind)
+          IN (SELECT * FROM authz.capped_kinds('writer')))));
 CREATE POLICY share_links_delete ON share_links FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 
-GRANT SELECT, INSERT, UPDATE (expires_at), DELETE ON organization_blocks TO app;
-CREATE POLICY organization_blocks_select ON organization_blocks FOR SELECT TO app
-  USING ((organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-    OR principal_id = (SELECT authz.caller_id())
-    OR principal_id = (SELECT authz.acting_installation_id()));
-CREATE POLICY organization_blocks_insert ON organization_blocks FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
-    AND principal_id IN (SELECT grantee.id FROM grantees grantee));
-CREATE POLICY organization_blocks_update ON organization_blocks FOR UPDATE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
-CREATE POLICY organization_blocks_delete ON organization_blocks FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+GRANT SELECT, INSERT, UPDATE (expires_at), DELETE ON user_blocks TO app;
+CREATE POLICY user_blocks_select ON user_blocks FOR SELECT TO app
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR (user_id = (SELECT authz.caller_id())));
+CREATE POLICY user_blocks_insert ON user_blocks FOR INSERT TO app
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    AND user_id IN (SELECT person.id FROM users person));
+CREATE POLICY user_blocks_update ON user_blocks FOR UPDATE TO app
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')))
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
+CREATE POLICY user_blocks_delete ON user_blocks FOR DELETE TO app
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
+
+GRANT SELECT, INSERT, UPDATE (expires_at), DELETE ON installation_blocks TO app;
+CREATE POLICY installation_blocks_select ON installation_blocks FOR SELECT TO app
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR (installation_namespace_id = (SELECT authz.acting_installation_namespace_id())
+      AND installation_id = (SELECT authz.acting_installation_id())));
+CREATE POLICY installation_blocks_insert ON installation_blocks FOR INSERT TO app
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    AND (installation_namespace_id, installation_id) IN (SELECT installation.namespace_id, installation.id FROM app_installations installation));
+CREATE POLICY installation_blocks_update ON installation_blocks FOR UPDATE TO app
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')))
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
+CREATE POLICY installation_blocks_delete ON installation_blocks FOR DELETE TO app
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 
 GRANT SELECT, INSERT, UPDATE (name), DELETE ON apps TO app;
 CREATE POLICY apps_select ON apps FOR SELECT TO app
   USING (TRUE);
 CREATE POLICY apps_insert ON apps FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 CREATE POLICY apps_update ON apps FOR UPDATE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))))
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')))
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 CREATE POLICY apps_delete ON apps FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
-GRANT SELECT, INSERT, DELETE ON app_installations TO app;
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
+GRANT SELECT, DELETE ON app_installations TO app;
+GRANT INSERT (namespace_id, id, app_id, organization_namespace_id, organization_id) ON app_installations TO app;
 CREATE POLICY app_installations_select ON app_installations FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR (namespace_id = (SELECT authz.acting_installation_namespace_id()) AND id = (SELECT authz.acting_installation_id())));
 CREATE POLICY app_installations_insert ON app_installations FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+  WITH CHECK (namespace_id = (SELECT authz.caller_namespace())
+    AND (organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
     AND app_id IN (SELECT app.id FROM apps app));
 CREATE POLICY app_installations_delete ON app_installations FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 GRANT SELECT, INSERT, DELETE ON installation_permissions TO app;
 CREATE POLICY installation_permissions_select ON installation_permissions FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
-    OR installation_id = (SELECT authz.acting_installation_id()));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
+    OR (installation_namespace_id = (SELECT authz.acting_installation_namespace_id())
+      AND installation_id = (SELECT authz.acting_installation_id())));
 CREATE POLICY installation_permissions_insert ON installation_permissions FOR INSERT TO app
-  WITH CHECK (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin')))
+  WITH CHECK ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin'))
     AND (SELECT authz.acting_installation_id()) IS NULL);
 CREATE POLICY installation_permissions_delete ON installation_permissions FOR DELETE TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 
 GRANT SELECT ON audit_events TO app;
 CREATE POLICY audit_events_select ON audit_events FOR SELECT TO app
-  USING (organization_id = ANY (ARRAY(SELECT authz.organizations_with('admin'))));
+  USING ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.organizations_with('admin')));
 
 GRANT SELECT ON platform_operators TO app;
 CREATE POLICY platform_operators_select ON platform_operators FOR SELECT TO app
-  USING (id = (SELECT authz.caller_id()) AND (SELECT authz.acting_installation_id()) IS NULL);
+  USING (id = (SELECT authz.caller_id())
+    AND (SELECT authz.acting_installation_id()) IS NULL);
 GRANT SELECT ON platform_audit_events TO app;
 CREATE POLICY platform_audit_events_select ON platform_audit_events FOR SELECT TO app
   USING ((SELECT authz.is_platform_operator()));
@@ -848,50 +1112,71 @@ CREATE POLICY grants_archived_delete ON grants AS RESTRICTIVE FOR DELETE TO app
   USING (NOT resource_archived);
 
 CREATE POLICY grants_blocked ON grants AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
+CREATE POLICY user_grants_archived_insert ON user_grants AS RESTRICTIVE FOR INSERT TO app
+  WITH CHECK (NOT resource_archived);
+CREATE POLICY user_grants_archived_update ON user_grants AS RESTRICTIVE FOR UPDATE TO app
+  USING (NOT resource_archived)
+  WITH CHECK (NOT resource_archived);
+CREATE POLICY user_grants_archived_delete ON user_grants AS RESTRICTIVE FOR DELETE TO app
+  USING (NOT resource_archived);
+
+CREATE POLICY user_grants_blocked ON user_grants AS RESTRICTIVE FOR ALL TO app
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY organizations_blocked ON organizations AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((namespace_id, id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((namespace_id, id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY memberships_blocked ON memberships AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY invitations_blocked ON invitations AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY teams_blocked ON teams AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY team_members_blocked ON team_members AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY share_links_blocked ON share_links AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 -- A blocked principal still reads its own blocks, and only an unblocked admin writes them.
-CREATE POLICY organization_blocks_blocked_select ON organization_blocks AS RESTRICTIVE FOR SELECT TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations())))
-    OR principal_id = (SELECT authz.caller_id())
-    OR principal_id = (SELECT authz.acting_installation_id()));
-CREATE POLICY organization_blocks_blocked_insert ON organization_blocks AS RESTRICTIVE FOR INSERT TO app
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
-CREATE POLICY organization_blocks_blocked_update ON organization_blocks AS RESTRICTIVE FOR UPDATE TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
-CREATE POLICY organization_blocks_blocked_delete ON organization_blocks AS RESTRICTIVE FOR DELETE TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+CREATE POLICY user_blocks_blocked_select ON user_blocks AS RESTRICTIVE FOR SELECT TO app
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations()))
+    OR (user_id = (SELECT authz.caller_id())));
+CREATE POLICY user_blocks_blocked_insert ON user_blocks AS RESTRICTIVE FOR INSERT TO app
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
+CREATE POLICY user_blocks_blocked_update ON user_blocks AS RESTRICTIVE FOR UPDATE TO app
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
+CREATE POLICY user_blocks_blocked_delete ON user_blocks AS RESTRICTIVE FOR DELETE TO app
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
+CREATE POLICY installation_blocks_blocked_select ON installation_blocks AS RESTRICTIVE FOR SELECT TO app
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations()))
+    OR (installation_namespace_id = (SELECT authz.acting_installation_namespace_id())
+      AND installation_id = (SELECT authz.acting_installation_id())));
+CREATE POLICY installation_blocks_blocked_insert ON installation_blocks AS RESTRICTIVE FOR INSERT TO app
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
+CREATE POLICY installation_blocks_blocked_update ON installation_blocks AS RESTRICTIVE FOR UPDATE TO app
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
+CREATE POLICY installation_blocks_blocked_delete ON installation_blocks AS RESTRICTIVE FOR DELETE TO app
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY apps_blocked ON apps AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY app_installations_blocked ON app_installations AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY audit_events_blocked ON audit_events AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 CREATE POLICY installation_permissions_blocked ON installation_permissions AS RESTRICTIVE FOR ALL TO app
-  USING (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))))
-  WITH CHECK (NOT (organization_id = ANY (ARRAY(SELECT authz.blocking_organizations()))));
+  USING (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())))
+  WITH CHECK (NOT ((organization_namespace_id, organization_id) IN (SELECT * FROM authz.blocking_organizations())));
 
 CREATE SCHEMA authz_write;
 REVOKE ALL ON SCHEMA authz_write FROM PUBLIC;
@@ -900,31 +1185,34 @@ ALTER DEFAULT PRIVILEGES FOR ROLE authz_writer REVOKE EXECUTE ON FUNCTIONS FROM 
 GRANT USAGE ON SCHEMA authz_write TO authz_writer;
 GRANT USAGE ON SCHEMA authz TO authz_writer;
 GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grants(), authz.administered_teams(),
-  authz.caller_id(), authz.acting_installation_id(), authz.original_actor_id(), authz.max_tree_depth() TO authz_writer;
+  authz.caller_id(), authz.acting_installation_id(), authz.acting_installation_namespace_id(), authz.original_actor_id(),
+  authz.max_tree_depth() TO authz_writer;
 
 GRANT INSERT, DELETE ON grantees TO authz_writer;
 GRANT INSERT ON namespaces TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
-GRANT UPDATE (kind) ON users TO authz_writer;
-GRANT SELECT ON organizations, teams, resources, grants TO authz_writer;
-GRANT SELECT (id) ON share_links, app_installations TO authz_writer;
+GRANT UPDATE (id) ON users TO authz_writer;
+GRANT SELECT ON organizations, teams, resources, grants, user_grants TO authz_writer;
+GRANT SELECT (namespace_id, id) ON share_links, app_installations TO authz_writer;
 GRANT UPDATE (founded_at) ON organizations TO authz_writer;
 GRANT SELECT ON memberships, invitations TO authz_writer;
 GRANT UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT SELECT ON audit_events TO authz_writer;
-GRANT DELETE ON grants TO authz_writer;
-GRANT INSERT (organization_id, resource_id, grantee_id, grantee_kind, role) ON grants TO authz_writer;
+GRANT DELETE ON user_grants TO authz_writer;
+GRANT INSERT (organization_namespace_id, organization_id, resource_id, user_id, role)
+  ON user_grants TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
 
 CREATE FUNCTION authz_write.require_support_expiry(target_user UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   -- A row version change makes stale snapshots fail serialization.
-  UPDATE public.users SET kind = kind WHERE id = target_user;
+  UPDATE public.users SET id = id WHERE id = target_user;
   IF EXISTS (
     SELECT 1 FROM public.platform_operators operator
-    JOIN public.grants permission ON permission.grantee_id = operator.id
+    JOIN public.user_grants permission
+      ON permission.user_id = operator.id
     WHERE operator.id = target_user
       AND (permission.expires_at IS NULL OR NOT pg_catalog.isfinite(permission.expires_at))
   ) THEN
@@ -936,7 +1224,7 @@ $$;
 CREATE FUNCTION authz_write.check_grant_support_expiry() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  PERFORM authz_write.require_support_expiry(NEW.grantee_id);
+  PERFORM authz_write.require_support_expiry(NEW.user_id);
   RETURN NEW;
 END
 $$;
@@ -949,71 +1237,102 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER grants_support_expiry AFTER INSERT ON grants
-  FOR EACH ROW WHEN (NEW.grantee_kind = 'user' AND (NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at)))
+CREATE TRIGGER user_grants_support_expiry AFTER INSERT ON user_grants
+  FOR EACH ROW WHEN ((NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at)))
   EXECUTE FUNCTION authz_write.check_grant_support_expiry();
-CREATE TRIGGER grants_update_support_expiry AFTER UPDATE ON grants
-  FOR EACH ROW WHEN (NEW.grantee_kind = 'user' AND (NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at))
-    AND (OLD.grantee_id, OLD.grantee_kind, OLD.expires_at) IS DISTINCT FROM (NEW.grantee_id, NEW.grantee_kind, NEW.expires_at))
+CREATE TRIGGER user_grants_update_support_expiry AFTER UPDATE ON user_grants
+  FOR EACH ROW WHEN ((NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at))
+    AND (OLD.user_id, OLD.expires_at)
+      IS DISTINCT FROM (NEW.user_id, NEW.expires_at))
   EXECUTE FUNCTION authz_write.check_grant_support_expiry();
 CREATE TRIGGER platform_operators_support_expiry AFTER INSERT ON platform_operators
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_operator_support_expiry();
 CREATE TRIGGER platform_operators_update_support_expiry AFTER UPDATE ON platform_operators
-  FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.check_operator_support_expiry();
+  FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id)
+  EXECUTE FUNCTION authz_write.check_operator_support_expiry();
 
+-- Runs after the row passed its insert policy, so a refused row writes no grantee.
 CREATE FUNCTION authz_write.insert_grantee() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  INSERT INTO public.grantees (id, kind) VALUES (NEW.id, NEW.kind)
-    ON CONFLICT (id, kind) DO NOTHING;
-  RETURN NEW;
+  INSERT INTO public.grantees (namespace_id, id, kind) VALUES (NEW.namespace_id, NEW.id, NEW.kind)
+    ON CONFLICT (namespace_id, id, kind) DO NOTHING;
+  RETURN NULL;
 END
 $$;
 
 CREATE FUNCTION authz_write.delete_grantee() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  DELETE FROM public.grantees WHERE id = OLD.id;
+  DELETE FROM public.grantees WHERE namespace_id = OLD.namespace_id AND id = OLD.id;
   RETURN NULL;
 END
 $$;
 
+-- Runs after the row passed its insert policy, so a refused or skipped row writes no namespace.
 CREATE FUNCTION authz_write.insert_namespace() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  INSERT INTO public.namespaces (user_id) VALUES (NEW.id);
-  RETURN NEW;
+  INSERT INTO public.namespaces (id) VALUES (NEW.owned_namespace_id);
+  RETURN NULL;
 END
 $$;
 
 CREATE TRIGGER users_namespace AFTER INSERT ON users
   FOR EACH ROW EXECUTE FUNCTION authz_write.insert_namespace();
+CREATE TRIGGER app_installations_namespace AFTER INSERT ON app_installations
+  FOR EACH ROW EXECUTE FUNCTION authz_write.insert_namespace();
 
-CREATE TRIGGER users_grantee BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
-CREATE TRIGGER users_grantee_removed AFTER DELETE ON users FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER users_grantee_rekeyed AFTER UPDATE ON users FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER organizations_grantee BEFORE INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER organizations_grantee AFTER INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER organizations_grantee_key_changed AFTER UPDATE ON organizations
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER organizations_grantee_removed AFTER DELETE ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER organizations_grantee_rekeyed AFTER UPDATE ON organizations FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER teams_grantee BEFORE INSERT ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER organizations_grantee_rekeyed AFTER UPDATE ON organizations
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER teams_grantee AFTER INSERT ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER teams_grantee_key_changed AFTER UPDATE ON teams
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER teams_grantee_removed AFTER DELETE ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER teams_grantee_rekeyed AFTER UPDATE ON teams FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER share_links_grantee BEFORE INSERT ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER teams_grantee_rekeyed AFTER UPDATE ON teams
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER share_links_grantee AFTER INSERT ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER share_links_grantee_key_changed AFTER UPDATE ON share_links
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER share_links_grantee_removed AFTER DELETE ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER share_links_grantee_rekeyed AFTER UPDATE ON share_links FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER app_installations_grantee BEFORE INSERT ON app_installations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
-CREATE TRIGGER app_installations_grantee_removed AFTER DELETE ON app_installations FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER app_installations_grantee_rekeyed AFTER UPDATE ON app_installations FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER share_links_grantee_rekeyed AFTER UPDATE ON share_links
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER app_installations_grantee AFTER INSERT ON app_installations
+  FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER app_installations_grantee_key_changed AFTER UPDATE ON app_installations
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER app_installations_grantee_removed AFTER DELETE ON app_installations
+  FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER app_installations_grantee_rekeyed AFTER UPDATE ON app_installations
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.delete_grantee();
 
 CREATE FUNCTION authz_write.check_grantee_subtype() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.grantees grantee WHERE grantee.id = NEW.id AND grantee.kind = NEW.kind) AND NOT (CASE NEW.kind
-    WHEN 'user' THEN EXISTS (SELECT 1 FROM public.users principal WHERE principal.id = NEW.id)
-    WHEN 'organization' THEN EXISTS (SELECT 1 FROM public.organizations organization WHERE organization.id = NEW.id)
-    WHEN 'team' THEN EXISTS (SELECT 1 FROM public.teams team WHERE team.id = NEW.id)
-    WHEN 'link' THEN EXISTS (SELECT 1 FROM public.share_links link WHERE link.id = NEW.id)
-    WHEN 'installation' THEN EXISTS (SELECT 1 FROM public.app_installations installation WHERE installation.id = NEW.id)
+  IF EXISTS (
+    SELECT 1 FROM public.grantees grantee
+    WHERE grantee.namespace_id = NEW.namespace_id AND grantee.id = NEW.id AND grantee.kind = NEW.kind
+  ) AND NOT (CASE NEW.kind
+    WHEN 'organization' THEN EXISTS (SELECT 1 FROM public.organizations organization
+      WHERE organization.namespace_id = NEW.namespace_id AND organization.id = NEW.id)
+    WHEN 'team' THEN EXISTS (SELECT 1 FROM public.teams team
+      WHERE team.namespace_id = NEW.namespace_id AND team.id = NEW.id)
+    WHEN 'link' THEN EXISTS (SELECT 1 FROM public.share_links link
+      WHERE link.namespace_id = NEW.namespace_id AND link.id = NEW.id)
+    WHEN 'installation' THEN EXISTS (SELECT 1 FROM public.app_installations installation
+      WHERE installation.namespace_id = NEW.namespace_id AND installation.id = NEW.id)
   END) THEN
     RAISE EXCEPTION 'grantee % requires its % row', NEW.id, NEW.kind USING ERRCODE = 'check_violation';
   END IF;
@@ -1022,7 +1341,7 @@ END
 $$;
 
 CREATE CONSTRAINT TRIGGER grantees_subtype_required AFTER INSERT OR UPDATE ON grantees
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind IN ('user', 'organization', 'team', 'link', 'installation'))
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind IN ('organization', 'team', 'link', 'installation'))
   EXECUTE FUNCTION authz_write.check_grantee_subtype();
 
 CREATE FUNCTION authz.stamp_archived_at() RETURNS TRIGGER
@@ -1100,12 +1419,18 @@ CREATE TRIGGER grants_move_copy_archive BEFORE UPDATE ON grants
   FOR EACH ROW WHEN (OLD.resource_id IS DISTINCT FROM NEW.resource_id)
   EXECUTE FUNCTION authz_write.copy_grant_archive();
 
-CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
+CREATE TRIGGER user_grants_copy_archive BEFORE INSERT ON user_grants
+  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_grant_archive();
+CREATE TRIGGER user_grants_move_copy_archive BEFORE UPDATE ON user_grants
+  FOR EACH ROW WHEN (OLD.resource_id IS DISTINCT FROM NEW.resource_id)
+  EXECUTE FUNCTION authz_write.copy_grant_archive();
+
+CREATE FUNCTION authz_write.lock_organization(target_namespace UUID, target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   PERFORM authz.refuse_repeatable_read();
   PERFORM organization.id FROM public.organizations organization
-    WHERE organization.id = target_organization FOR NO KEY UPDATE;
+    WHERE organization.namespace_id = target_namespace AND organization.id = target_organization FOR NO KEY UPDATE;
   RETURN FOUND;
 END
 $$;
@@ -1117,25 +1442,26 @@ DECLARE
   descendant_depth INTEGER;
   contains_cycle BOOLEAN;
 BEGIN
-  PERFORM authz_write.lock_organization(NEW.organization_id);
-  WITH RECURSIVE ancestors (id, depth) AS (
-    SELECT NEW.parent_id, 1 WHERE NEW.parent_id IS NOT NULL
+  PERFORM authz_write.lock_organization(NEW.organization_namespace_id, NEW.organization_id);
+  WITH RECURSIVE ancestors (namespace_id, id, depth) AS (
+    SELECT NEW.parent_namespace_id, NEW.parent_id, 1 WHERE NEW.parent_id IS NOT NULL
     UNION
-    SELECT team.parent_id, ancestors.depth + 1 FROM public.teams team
-    JOIN ancestors ON team.id = ancestors.id
+    SELECT team.parent_namespace_id, team.parent_id, ancestors.depth + 1 FROM public.teams team
+    JOIN ancestors ON team.namespace_id = ancestors.namespace_id AND team.id = ancestors.id
     WHERE team.parent_id IS NOT NULL
-      AND ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
+      AND ancestors.depth <= authz.max_tree_depth()
+      AND (ancestors.namespace_id, ancestors.id) <> (NEW.namespace_id, NEW.id)
   )
-  SELECT max(ancestors.depth), bool_or(ancestors.id = NEW.id)
+  SELECT max(ancestors.depth), bool_or(ancestors.namespace_id = NEW.namespace_id AND ancestors.id = NEW.id)
     INTO ancestor_depth, contains_cycle FROM ancestors;
   IF contains_cycle THEN
     RAISE EXCEPTION 'team % would become its own ancestor', NEW.id USING ERRCODE = 'check_violation';
   END IF;
-  WITH RECURSIVE descendants (id, depth) AS (
-    SELECT NEW.id, 1
+  WITH RECURSIVE descendants (namespace_id, id, depth) AS (
+    SELECT NEW.namespace_id, NEW.id, 1
     UNION
-    SELECT team.id, descendants.depth + 1 FROM public.teams team
-    JOIN descendants ON team.parent_id = descendants.id
+    SELECT team.namespace_id, team.id, descendants.depth + 1 FROM public.teams team
+    JOIN descendants ON team.parent_namespace_id = descendants.namespace_id AND team.parent_id = descendants.id
     WHERE descendants.depth <= authz.max_tree_depth()
   )
   SELECT max(descendants.depth) INTO descendant_depth FROM descendants;
@@ -1153,7 +1479,7 @@ DECLARE
   descendant_depth INTEGER;
   contains_cycle BOOLEAN;
 BEGIN
-  PERFORM authz_write.lock_organization(NEW.organization_id);
+  PERFORM authz_write.lock_organization(NEW.organization_namespace_id, NEW.organization_id);
   WITH RECURSIVE ancestors (id, depth) AS (
     SELECT NEW.parent_id, 1
     UNION
@@ -1185,35 +1511,42 @@ $$;
 CREATE TRIGGER teams_shape BEFORE INSERT ON teams
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_parent();
 CREATE TRIGGER teams_update_shape BEFORE UPDATE ON teams
-  FOR EACH ROW WHEN ((OLD.id, OLD.organization_id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.organization_id, NEW.parent_id))
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id, OLD.organization_namespace_id, OLD.organization_id,
+      OLD.parent_namespace_id, OLD.parent_id)
+    IS DISTINCT FROM (NEW.namespace_id, NEW.id, NEW.organization_namespace_id, NEW.organization_id,
+      NEW.parent_namespace_id, NEW.parent_id))
   EXECUTE FUNCTION authz_write.check_team_parent();
 CREATE TRIGGER resources_shape BEFORE INSERT ON resources
   FOR EACH ROW WHEN (NEW.kind IN ('folder', 'project'))
   EXECUTE FUNCTION authz_write.check_resource_parent();
 CREATE TRIGGER resources_update_shape BEFORE UPDATE ON resources
   FOR EACH ROW WHEN (NEW.kind IN ('folder', 'project')
-    AND (OLD.id, OLD.organization_id, OLD.kind, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.organization_id, NEW.kind, NEW.parent_id))
+    AND (OLD.id, OLD.organization_namespace_id, OLD.organization_id, OLD.kind, OLD.parent_id)
+      IS DISTINCT FROM (NEW.id, NEW.organization_namespace_id, NEW.organization_id, NEW.kind, NEW.parent_id))
   EXECUTE FUNCTION authz_write.check_resource_parent();
 
-CREATE FUNCTION authz_write.has_active_admin(target_organization UUID) RETURNS BOOLEAN
+CREATE FUNCTION authz_write.has_active_admin(target_namespace UUID, target_organization UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.grants permission
+    SELECT 1 FROM public.user_grants permission
     JOIN public.memberships membership
-      ON membership.organization_id = permission.organization_id AND membership.user_id = permission.grantee_id
-    WHERE permission.resource_id = target_organization AND permission.organization_id = target_organization
-      AND permission.role = 'admin' AND permission.expires_at IS NULL AND permission.grantee_kind = 'user'
+      ON membership.organization_namespace_id = permission.organization_namespace_id
+        AND membership.organization_id = permission.organization_id
+        AND membership.user_id = permission.user_id
+    WHERE permission.resource_id = target_organization
+      AND permission.organization_namespace_id = target_namespace AND permission.organization_id = target_organization
+      AND permission.role = 'admin' AND permission.expires_at IS NULL
       AND membership.state = 'active'
   )
 $$;
 
-CREATE FUNCTION authz_write.require_organization_admin(target_organization UUID) RETURNS VOID
+CREATE FUNCTION authz_write.require_organization_admin(target_namespace UUID, target_organization UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF NOT authz_write.lock_organization(target_organization) THEN
+  IF NOT authz_write.lock_organization(target_namespace, target_organization) THEN
     RETURN;
   END IF;
-  IF NOT authz_write.has_active_admin(target_organization) THEN
+  IF NOT authz_write.has_active_admin(target_namespace, target_organization) THEN
     RAISE EXCEPTION 'organization % would lose its last admin', target_organization USING ERRCODE = 'check_violation';
   END IF;
 END
@@ -1222,20 +1555,20 @@ $$;
 CREATE FUNCTION authz_write.check_last_admin() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  PERFORM authz_write.require_organization_admin(OLD.organization_id);
+  PERFORM authz_write.require_organization_admin(OLD.organization_namespace_id, OLD.organization_id);
   RETURN NULL;
 END
 $$;
 
-CREATE CONSTRAINT TRIGGER grants_last_admin AFTER UPDATE OR DELETE ON grants
+CREATE CONSTRAINT TRIGGER user_grants_last_admin AFTER UPDATE OR DELETE ON user_grants
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-  WHEN (OLD.role = 'admin' AND OLD.expires_at IS NULL AND OLD.grantee_kind = 'user' AND OLD.resource_id = OLD.organization_id)
+  WHEN (OLD.role = 'admin' AND OLD.expires_at IS NULL AND OLD.resource_id = OLD.organization_id)
   EXECUTE FUNCTION authz_write.check_last_admin();
 
 CREATE FUNCTION authz_write.check_membership_admin() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  PERFORM authz_write.require_organization_admin(OLD.organization_id);
+  PERFORM authz_write.require_organization_admin(OLD.organization_namespace_id, OLD.organization_id);
   RETURN NULL;
 END
 $$;
@@ -1247,10 +1580,13 @@ CREATE CONSTRAINT TRIGGER memberships_last_admin AFTER UPDATE OR DELETE ON membe
 CREATE FUNCTION authz_write.check_founded() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM ONLY public.organizations organization WHERE organization.id = NEW.id) THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM ONLY public.organizations organization
+    WHERE organization.namespace_id = NEW.namespace_id AND organization.id = NEW.id
+  ) THEN
     RETURN NULL;
   END IF;
-  IF NOT authz_write.has_active_admin(NEW.id) THEN
+  IF NOT authz_write.has_active_admin(NEW.namespace_id, NEW.id) THEN
     RAISE EXCEPTION 'organization % requires an active admin', NEW.id USING ERRCODE = 'check_violation';
   END IF;
   RETURN NULL;
@@ -1263,7 +1599,10 @@ CREATE CONSTRAINT TRIGGER organizations_admin_required AFTER INSERT ON organizat
 CREATE FUNCTION authz_write.check_organization_identifier() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.audit_events event WHERE event.organization_id = NEW.id) THEN
+  IF EXISTS (
+    SELECT 1 FROM public.audit_events event
+    WHERE event.organization_namespace_id = NEW.namespace_id AND event.organization_id = NEW.id
+  ) THEN
     RAISE EXCEPTION 'organization % was deleted and its identifier is retired', NEW.id USING ERRCODE = 'unique_violation';
   END IF;
   RETURN NULL;
@@ -1276,22 +1615,25 @@ CREATE CONSTRAINT TRIGGER organizations_identifier_retired AFTER INSERT ON organ
 CREATE FUNCTION authz_write.stamp_founded_at() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  UPDATE public.organizations SET founded_at = now() WHERE id = NEW.organization_id AND founded_at IS NULL;
+  UPDATE public.organizations SET founded_at = now()
+    WHERE namespace_id = NEW.organization_namespace_id AND id = NEW.organization_id AND founded_at IS NULL;
   RETURN NULL;
 END
 $$;
 
-CREATE TRIGGER grants_founded AFTER INSERT ON grants
+CREATE TRIGGER user_grants_founded AFTER INSERT ON user_grants
   FOR EACH ROW WHEN (NEW.resource_id = NEW.organization_id AND NEW.role = 'admin')
   EXECUTE FUNCTION authz_write.stamp_founded_at();
 
 CREATE FUNCTION authz_write.grant_founder_admin() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  INSERT INTO public.grants (organization_id, resource_id, grantee_id, grantee_kind, role)
-    SELECT organization.id, organization.id, NEW.user_id, 'user', 'admin'
+  INSERT INTO public.user_grants
+    (organization_namespace_id, organization_id, resource_id, user_id, role)
+    SELECT organization.namespace_id, organization.id, organization.id, NEW.user_id, 'admin'
     FROM public.organizations organization
-    WHERE organization.id = NEW.organization_id AND organization.created_by_id = NEW.user_id
+    WHERE organization.namespace_id = NEW.organization_namespace_id AND organization.id = NEW.organization_id
+      AND organization.created_by_id = NEW.user_id
       AND organization.founded_at IS NULL;
   RETURN NULL;
 END
@@ -1303,8 +1645,9 @@ CREATE TRIGGER memberships_founder_admin AFTER INSERT ON memberships
 CREATE FUNCTION authz_write.delete_membership_grants() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  DELETE FROM public.grants
-    WHERE organization_id = OLD.organization_id AND grantee_id = OLD.user_id AND grantee_kind = 'user';
+  DELETE FROM public.user_grants
+    WHERE organization_namespace_id = OLD.organization_namespace_id AND organization_id = OLD.organization_id
+      AND user_id = OLD.user_id;
   RETURN NULL;
 END
 $$;
@@ -1315,7 +1658,8 @@ CREATE TRIGGER memberships_grants_removed AFTER DELETE ON memberships
 CREATE FUNCTION authz_write.accept_invitation() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  UPDATE public.invitations SET accepted_by_id = NEW.user_id WHERE id = NEW.invitation_id;
+  UPDATE public.invitations SET accepted_by_id = NEW.user_id
+    WHERE id = NEW.invitation_id;
   RETURN NULL;
 END
 $$;
@@ -1334,10 +1678,15 @@ BEGIN
     changed := NEW;
   END IF;
   INSERT INTO public.audit_events
-    (at, organization_id, actor_id, original_actor_id, installation_id, table_name, operation, old_row, new_row)
+    (at, organization_namespace_id, organization_id, actor_id,
+      original_actor_id, installation_namespace_id, installation_id,
+      table_name, operation, old_row, new_row)
   VALUES (
-    now(), changed.organization_id, authz.caller_id(), authz.original_actor_id(),
-    authz.acting_installation_id(), TG_TABLE_NAME, TG_OP::authz.audit_operation,
+    now(), changed.organization_namespace_id, changed.organization_id,
+    authz.caller_id(),
+    authz.original_actor_id(),
+    authz.acting_installation_namespace_id(), authz.acting_installation_id(),
+    TG_TABLE_NAME, TG_OP::authz.audit_operation,
     CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE to_jsonb(OLD) END,
     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE to_jsonb(NEW) END
   );
@@ -1349,10 +1698,14 @@ CREATE FUNCTION authz_write.record_platform_audit_event() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   INSERT INTO public.platform_audit_events
-    (at, actor_id, original_actor_id, installation_id, table_name, operation, old_row, new_row)
+    (at, actor_id, original_actor_id,
+      installation_namespace_id, installation_id, table_name, operation, old_row, new_row)
   VALUES (
-    now(), authz.caller_id(), authz.original_actor_id(),
-    authz.acting_installation_id(), TG_TABLE_NAME, TG_OP::authz.audit_operation,
+    now(),
+    authz.caller_id(),
+    authz.original_actor_id(),
+    authz.acting_installation_namespace_id(), authz.acting_installation_id(),
+    TG_TABLE_NAME, TG_OP::authz.audit_operation,
     CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE to_jsonb(OLD) END,
     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE to_jsonb(NEW) END
   );
@@ -1377,13 +1730,22 @@ CREATE TRIGGER grants_audit AFTER INSERT OR DELETE ON grants
 CREATE TRIGGER grants_update_audit AFTER UPDATE ON grants
   FOR EACH ROW WHEN (to_jsonb(OLD) - 'resource_archived' IS DISTINCT FROM to_jsonb(NEW) - 'resource_archived')
   EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER user_grants_audit AFTER INSERT OR DELETE ON user_grants
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER user_grants_update_audit AFTER UPDATE ON user_grants
+  FOR EACH ROW WHEN (to_jsonb(OLD) - 'resource_archived' IS DISTINCT FROM to_jsonb(NEW) - 'resource_archived')
+  EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER share_links_audit AFTER INSERT OR DELETE ON share_links
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER share_links_update_audit AFTER UPDATE ON share_links
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER organization_blocks_audit AFTER INSERT OR DELETE ON organization_blocks
+CREATE TRIGGER user_blocks_audit AFTER INSERT OR DELETE ON user_blocks
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER organization_blocks_update_audit AFTER UPDATE ON organization_blocks
+CREATE TRIGGER user_blocks_update_audit AFTER UPDATE ON user_blocks
+  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER installation_blocks_audit AFTER INSERT OR DELETE ON installation_blocks
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER installation_blocks_update_audit AFTER UPDATE ON installation_blocks
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER app_installations_audit AFTER INSERT OR DELETE ON app_installations
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
@@ -1435,11 +1797,11 @@ ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_resource_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_grant_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.inherit_resource_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
+ALTER FUNCTION authz_write.lock_organization(UUID, UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.has_active_admin(UUID) OWNER TO authz_writer;
-ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;
+ALTER FUNCTION authz_write.has_active_admin(UUID, UUID) OWNER TO authz_writer;
+ALTER FUNCTION authz_write.require_organization_admin(UUID, UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_last_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_membership_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_membership_grants() OWNER TO authz_writer;
@@ -1457,5 +1819,5 @@ single_crate = true
 
 [[crates]]
 name = "connetto-schema"
-tables = ["app_installations", "apps", "audit_events", "grantees", "grants", "installation_permissions", "invitations", "memberships", "namespaces", "organization_blocks", "organizations", "platform_audit_events", "platform_operators", "resources", "share_links", "team_members", "teams", "users"]
+tables = ["app_installations", "apps", "audit_events", "grantees", "grants", "installation_blocks", "installation_permissions", "invitations", "memberships", "namespaces", "organizations", "platform_audit_events", "platform_operators", "resources", "share_links", "team_members", "teams", "user_blocks", "user_grants", "users"]
 types = ["authz.audit_operation", "authz.grantee_kind", "authz.membership_state", "authz.resource_kind", "authz.role", "authz.team_role"]

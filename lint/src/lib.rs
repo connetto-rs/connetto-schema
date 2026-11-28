@@ -20,7 +20,7 @@ pub const TENANT_ROOT: &str = "organizations";
 pub const IRREVERSIBLE_COLUMNS: &[(&str, &str)] = &[("share_links", "revoked_at")];
 
 /// Tables whose rows belong to the organization named by their
-/// `organization_id`.
+/// `organization_namespace_id` and `organization_id` together.
 pub const TENANT_TABLES: &[&str] = &[
     "invitations",
     "memberships",
@@ -28,8 +28,10 @@ pub const TENANT_TABLES: &[&str] = &[
     "team_members",
     "resources",
     "grants",
+    "user_grants",
     "share_links",
-    "organization_blocks",
+    "user_blocks",
+    "installation_blocks",
     "apps",
     "app_installations",
     "installation_permissions",
@@ -95,7 +97,7 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
         .with_app_role("app")
         .with_app_role("identity_writer")
         .with_pooled(true)
-        .with_tenant_key("public", TENANT_ROOT, ["id"])
+        .with_tenant_key("public", TENANT_ROOT, ["namespace_id", "id"])
         .with_audit_function(
             "authz_write",
             "record_audit_event",
@@ -112,7 +114,11 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
         deployment = deployment.with_irreversible_column("public", *table, *column);
     }
     for table in TENANT_TABLES {
-        deployment = deployment.with_tenant_key("public", *table, ["organization_id"]);
+        deployment = deployment.with_tenant_key(
+            "public",
+            *table,
+            ["organization_namespace_id", "organization_id"],
+        );
     }
     for credential in [
         "authz.caller_id()",
@@ -131,6 +137,10 @@ pub fn deployment(cluster: &ParserDB) -> Deployment {
     deployment
         .with_request_setting("authz.acting_installation_id()")
         .expect("request setting parses")
+        .with_request_setting("authz.acting_installation_namespace_id()")
+        .expect("request namespace setting parses")
+        .with_principal_accessor("authz.caller_namespace()")
+        .expect("principal accessor parses")
 }
 
 /// A constrainer reading `deployment` at the levels connetto-schema runs,
@@ -155,35 +165,31 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         table("app_installations"),
         "app_installations_app_id_fkey",
     );
+    constrainer.allow_foreign_key(
+        "tenant_local_reference",
+        table("installation_blocks"),
+        "installation_blocks_installation_namespace_id_installation_fkey",
+    );
+    constrainer.allow_foreign_key(
+        "cascade_into_row_level_security_table",
+        table("installation_blocks"),
+        "installation_blocks_installation_namespace_id_installation_fkey",
+    );
     // Removing a membership removes its team memberships
     constrainer.allow_foreign_key(
         "cascade_into_row_level_security_table",
         table("team_members"),
-        "team_members_organization_id_user_id_fkey",
-    );
-    // Removing a grantee removes the grants naming it
-    constrainer.allow_foreign_key(
-        "cascade_into_row_level_security_table",
-        table("grants"),
-        "grants_grantee_id_grantee_kind_fkey",
-    );
-    // Removing a principal removes the blocks naming it
-    constrainer.allow_foreign_key(
-        "cascade_into_row_level_security_table",
-        table("organization_blocks"),
-        "organization_blocks_principal_id_principal_kind_fkey",
-    );
-    // resources_insert names only organizations from organizations_reaching or founded_organizations, which organizations_select reads
-    constrainer.allow_foreign_key(
-        "foreign_key_existence_oracle",
-        table("resources"),
-        "resources_organization_id_fkey",
+        "team_members_organization_namespace_id_organization_id_use_fkey",
     );
     // Archive copies remain equal through the cascading resource key.
     for (key_table, key) in [
         (
             "grants",
-            "grants_organization_id_resource_id_resource_archived_fkey",
+            "grants_organization_namespace_id_organization_id_resource__fkey",
+        ),
+        (
+            "user_grants",
+            "user_grants_organization_namespace_id_organization_id_reso_fkey",
         ),
         ("resources", "resources_parent_archive_fkey"),
     ] {
@@ -196,21 +202,20 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
     constrainer.allow_foreign_key(
         "copied_column_through_superkey",
         table("grants"),
-        "grants_organization_id_resource_id_resource_archived_fkey",
+        "grants_organization_namespace_id_organization_id_resource__fkey",
     );
-    // Apart from the two seeded audiences, subtype triggers write every grantee row beside an audited subtype row
-    constrainer.allow_table("unaudited_authority_table", table("grantees"));
-    // Organization admin needs a grant to the caller, since the grants check keeps everyone, signed_in and link grantees below admin
-    constrainer.allow_policy(
-        "self_granting_write",
-        table("team_members"),
-        "team_members_insert",
+    constrainer.allow_foreign_key(
+        "copied_column_through_superkey",
+        table("user_grants"),
+        "user_grants_organization_namespace_id_organization_id_reso_fkey",
     );
+    // Published apps form one catalog every caller reads, and apps_blocked hides only the apps of organizations blocking the caller
+    constrainer.allow_policy("deny_list_policy", table("apps"), "apps_blocked");
     // Each insert policy pins the column beside the key to an organization or project the caller already sees
     constrainer.allow_index(
         "unscoped_unique_constraint_on_row_level_security_table",
         table("invitations"),
-        "invitations_organization_id_id_key",
+        "invitations_organization_namespace_id_organization_id_id_key",
     );
     // Only the caller's own unaccepted invitation passes memberships_insert, so the policy refuses before the key is checked
     constrainer.allow_index(
@@ -223,6 +228,12 @@ fn allow(constrainer: &mut DefaultConstrainer<ParserDB>) {
         "unscoped_unique_constraint_on_row_level_security_table",
         table("share_links"),
         "share_links_token_hash_key",
+    );
+    // No role writes owned_namespace_id, which every user takes from gen_random_uuid()
+    constrainer.allow_index(
+        "unscoped_unique_constraint_on_row_level_security_table",
+        table("users"),
+        "users_owned_namespace_id_key",
     );
     // A bearer reads back only the link ids it presented, kept while unrevoked and unexpired, which share_links_select hides from it
     constrainer.allow_function(

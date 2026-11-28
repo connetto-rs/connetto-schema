@@ -3,15 +3,15 @@ setup
   INSERT INTO users (id) VALUES ('00000000-0000-0000-0000-000000000002');
   SET app.user_id = '00000000-0000-0000-0000-000000000002';
   BEGIN;
-  INSERT INTO organizations (id, created_by_id) VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
-  INSERT INTO resources (id, kind, organization_id) VALUES ('00000000-0000-0000-0000-000000000001', 'organization', '00000000-0000-0000-0000-000000000001');
-  INSERT INTO memberships (organization_id, user_id, state) VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'active');
+  INSERT INTO organizations (namespace_id, id, created_by_id) VALUES ((SELECT owned_namespace_id FROM users WHERE id = '00000000-0000-0000-0000-000000000002'), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
+  INSERT INTO resources (id, kind, organization_namespace_id, organization_id) VALUES ('00000000-0000-0000-0000-000000000001', 'organization', (SELECT owned_namespace_id FROM users WHERE id = '00000000-0000-0000-0000-000000000002'), '00000000-0000-0000-0000-000000000001');
+  INSERT INTO memberships (organization_namespace_id, organization_id, user_id, state) VALUES ((SELECT owned_namespace_id FROM users WHERE id = '00000000-0000-0000-0000-000000000002'), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'active');
   COMMIT;
   BEGIN;
-  INSERT INTO resources (organization_id, id, kind, parent_id, parent_kind)
-  VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003', 'folder', '00000000-0000-0000-0000-000000000001', 'organization');
-  INSERT INTO resources (organization_id, id, kind, parent_id, parent_kind)
-  VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', 'project', '00000000-0000-0000-0000-000000000003', 'folder');
+  INSERT INTO resources (organization_namespace_id, organization_id, id, kind, parent_id, parent_kind)
+  VALUES ((SELECT owned_namespace_id FROM users WHERE id = '00000000-0000-0000-0000-000000000002'), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003', 'folder', '00000000-0000-0000-0000-000000000001', 'organization');
+  INSERT INTO resources (organization_namespace_id, organization_id, id, kind, parent_id, parent_kind)
+  VALUES ((SELECT owned_namespace_id FROM users WHERE id = '00000000-0000-0000-0000-000000000002'), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', 'project', '00000000-0000-0000-0000-000000000003', 'folder');
   COMMIT;
 }
 
@@ -25,8 +25,8 @@ session writer
 setup { SET statement_timeout = '20s'; SET app.user_id = '00000000-0000-0000-0000-000000000002'; SET ROLE app; }
 step writer_begin { BEGIN ISOLATION LEVEL READ COMMITTED; }
 step writer_folder {
-  INSERT INTO resources (organization_id, id, kind, parent_id, parent_kind)
-  VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000003', 'folder');
+  INSERT INTO resources (organization_namespace_id, organization_id, id, kind, parent_id, parent_kind)
+  VALUES ((SELECT authz.caller_namespace()), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000003', 'folder');
 }
 step writer_finish { COMMIT; }
 

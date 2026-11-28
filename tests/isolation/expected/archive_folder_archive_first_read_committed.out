@@ -5,8 +5,8 @@ step archiver_begin: BEGIN ISOLATION LEVEL READ COMMITTED;
 step archiver_archive: UPDATE resources SET archived_at = now() WHERE id = '00000000-0000-0000-0000-000000000003';
 step writer_begin: BEGIN ISOLATION LEVEL READ COMMITTED;
 step writer_folder: 
-  INSERT INTO resources (organization_id, id, kind, parent_id, parent_kind)
-  VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000003', 'folder');
+  INSERT INTO resources (organization_namespace_id, organization_id, id, kind, parent_id, parent_kind)
+  VALUES ((SELECT authz.caller_namespace()), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'folder', '00000000-0000-0000-0000-000000000003', 'folder');
  <waiting ...>
 step archiver_finish: COMMIT;
 step writer_folder: <... completed>

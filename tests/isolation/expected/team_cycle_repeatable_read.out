@@ -2,26 +2,26 @@ Parsed test spec with 3 sessions
 
 starting permutation: first_begin first_snapshot second_begin second_snapshot first_write first_finish second_write second_finish invariant
 step first_begin: BEGIN ISOLATION LEVEL REPEATABLE READ;
-step first_snapshot: SELECT count(*) FROM grants;
+step first_snapshot: SELECT count(*) FROM user_grants;
 count
 -----
     2
 (1 row)
 
 step second_begin: BEGIN ISOLATION LEVEL REPEATABLE READ;
-step second_snapshot: SELECT count(*) FROM grants;
+step second_snapshot: SELECT count(*) FROM user_grants;
 count
 -----
     2
 (1 row)
 
-step first_write: UPDATE teams SET parent_id = '00000000-0000-0000-0000-000000000005' WHERE organization_id = '00000000-0000-0000-0000-000000000001' AND id = '00000000-0000-0000-0000-000000000004';
+step first_write: UPDATE teams SET parent_namespace_id = (SELECT authz.caller_namespace()), parent_id = '00000000-0000-0000-0000-000000000005' WHERE namespace_id = (SELECT authz.caller_namespace()) AND organization_namespace_id = (SELECT authz.caller_namespace()) AND organization_id = '00000000-0000-0000-0000-000000000001' AND id = '00000000-0000-0000-0000-000000000004';
 ERROR:  row-lock checks require read committed or serializable
 step first_finish: ROLLBACK;
-step second_write: UPDATE teams SET parent_id = '00000000-0000-0000-0000-000000000004' WHERE organization_id = '00000000-0000-0000-0000-000000000001' AND id = '00000000-0000-0000-0000-000000000005';
+step second_write: UPDATE teams SET parent_namespace_id = (SELECT authz.caller_namespace()), parent_id = '00000000-0000-0000-0000-000000000004' WHERE namespace_id = (SELECT authz.caller_namespace()) AND organization_namespace_id = (SELECT authz.caller_namespace()) AND organization_id = '00000000-0000-0000-0000-000000000001' AND id = '00000000-0000-0000-0000-000000000005';
 ERROR:  row-lock checks require read committed or serializable
 step second_finish: ROLLBACK;
-step invariant: SELECT count(*) AS cycles FROM teams first_edge JOIN teams second_edge ON first_edge.id = second_edge.parent_id AND first_edge.parent_id = second_edge.id WHERE first_edge.organization_id = '00000000-0000-0000-0000-000000000001';
+step invariant: SELECT count(*) AS cycles FROM teams first_edge JOIN teams second_edge ON first_edge.namespace_id = second_edge.parent_namespace_id AND first_edge.id = second_edge.parent_id AND first_edge.parent_namespace_id = second_edge.namespace_id AND first_edge.parent_id = second_edge.id WHERE first_edge.organization_namespace_id = (SELECT owned_namespace_id FROM users WHERE id = '00000000-0000-0000-0000-000000000002') AND first_edge.organization_id = '00000000-0000-0000-0000-000000000001';
 cycles
 ------
      0

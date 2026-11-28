@@ -9,11 +9,13 @@ A PostgreSQL core schema for multi-tenant applications whose access rules live i
 
 ```mermaid
 erDiagram
-    grantees ||--o| users : "is"
+    namespaces ||--o{ grantees : "holds"
     grantees ||--o| organizations : "is"
     grantees ||--o| teams : "is"
     grantees ||--o| share_links : "is"
     grantees ||--o| app_installations : "is"
+    namespaces ||--o| users : "created in by"
+    namespaces ||--o| app_installations : "created in by"
     users ||--o| platform_operators : "is"
 
     users ||--o{ organizations : "founds"
@@ -30,9 +32,13 @@ erDiagram
     resources |o--o{ resources : "parents"
     resources ||--o{ grants : "shared by"
     grantees ||--o{ grants : "receives"
+    resources ||--o{ user_grants : "shared by"
+    users ||--o{ user_grants : "receives"
     organizations ||--o{ share_links : "issues"
-    organizations ||--o{ organization_blocks : "blocks"
-    grantees ||--o{ organization_blocks : "blocked"
+    organizations ||--o{ user_blocks : "blocks"
+    users ||--o{ user_blocks : "blocked"
+    organizations ||--o{ installation_blocks : "blocks"
+    app_installations ||--o{ installation_blocks : "blocked"
 
     organizations ||--o{ apps : "publishes"
     apps ||--o{ app_installations : "installed as"
@@ -40,8 +46,9 @@ erDiagram
     app_installations ||--o{ installation_permissions : "allowed"
 
     grantees {
+        uuid namespace_id PK, FK
         uuid id PK
-        grantee_kind kind "user, installation, team, organization, everyone, signed_in, link"
+        grantee_kind kind "installation, team, organization, everyone, signed_in, link"
     }
     resources {
         uuid id PK
@@ -53,7 +60,14 @@ erDiagram
     }
     grants {
         uuid resource_id PK, FK
+        uuid grantee_namespace_id PK, FK
         uuid grantee_id PK, FK
+        role role "reader, writer, admin"
+        timestamptz expires_at
+    }
+    user_grants {
+        uuid resource_id PK, FK
+        uuid user_id PK, FK
         role role "reader, writer, admin"
         timestamptz expires_at
     }
@@ -75,7 +89,7 @@ erDiagram
     }
 ```
 
-Anything that can receive access is a grantee, and a grant gives one grantee a role on one resource. Resources form a tree under their organization through `parent_id`, deleting a folder or project removes its subtree, and moves update `resource_moves.parent_id` while archive and sharing updates target `resources`. Triggers record changes in `audit_events` and `platform_audit_events`.
+Users receive access through `user_grants` and every other principal is a grantee receiving it through `grants`, each giving one role on one resource. A grantee is keyed inside a namespace, and a client creates teams, organizations, links and installations in the namespace of the user or installation acting. Resources form a tree under their organization through `parent_id`, deleting a folder or project removes its subtree, and moves update `resource_moves.parent_id` while archive and sharing updates target `resources`. Triggers record changes in `audit_events` and `platform_audit_events`.
 
 ## Layout
 

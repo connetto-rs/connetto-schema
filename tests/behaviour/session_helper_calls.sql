@@ -4,15 +4,13 @@ BEGIN;
 \ir ../fixture.sql
 SELECT plan(2);
 
-SET ROLE identity_writer;
-INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001');
-RESET ROLE;
+SELECT pg_temp.provision('10000000-0000-7000-8000-000000000001');
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
-SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000001');
+SELECT pg_temp.found_organization(pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001');
 SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000001', 'project', '20000000-0000-7000-8000-000000000001');
-INSERT INTO resources (id, organization_id, parent_id, created_by_id, kind, parent_kind)
+INSERT INTO resources (id, organization_namespace_id, organization_id, parent_id, created_by_id, kind, parent_kind)
 SELECT ('60000000-0000-7000-8000-' || lpad(number::text, 12, '0'))::uuid,
-  '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001',
+  pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001',
   '10000000-0000-7000-8000-000000000001', 'ownable', 'project'
 FROM generate_series(1, 400) number;
 SET CONSTRAINTS ALL IMMEDIATE;

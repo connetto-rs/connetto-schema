@@ -5,31 +5,34 @@ ALTER DEFAULT PRIVILEGES FOR ROLE authz_writer REVOKE EXECUTE ON FUNCTIONS FROM 
 GRANT USAGE ON SCHEMA authz_write TO authz_writer;
 GRANT USAGE ON SCHEMA authz TO authz_writer;
 GRANT EXECUTE ON FUNCTION authz.resources_with(authz.role), authz.sharable_grants(), authz.administered_teams(),
-  authz.caller_id(), authz.acting_installation_id(), authz.original_actor_id(), authz.max_tree_depth() TO authz_writer;
+  authz.caller_id(), authz.acting_installation_id(), authz.acting_installation_namespace_id(), authz.original_actor_id(),
+  authz.max_tree_depth() TO authz_writer;
 
 GRANT INSERT, DELETE ON grantees TO authz_writer;
 GRANT INSERT ON namespaces TO authz_writer;
 GRANT SELECT ON grantees, users, platform_operators TO authz_writer;
-GRANT UPDATE (kind) ON users TO authz_writer;
-GRANT SELECT ON organizations, teams, resources, grants TO authz_writer;
-GRANT SELECT (id) ON share_links, app_installations TO authz_writer;
+GRANT UPDATE (id) ON users TO authz_writer;
+GRANT SELECT ON organizations, teams, resources, grants, user_grants TO authz_writer;
+GRANT SELECT (namespace_id, id) ON share_links, app_installations TO authz_writer;
 GRANT UPDATE (founded_at) ON organizations TO authz_writer;
 GRANT SELECT ON memberships, invitations TO authz_writer;
 GRANT UPDATE (accepted_by_id) ON invitations TO authz_writer;
 GRANT INSERT ON audit_events, platform_audit_events TO authz_writer;
 GRANT SELECT ON audit_events TO authz_writer;
-GRANT DELETE ON grants TO authz_writer;
-GRANT INSERT (organization_id, resource_id, grantee_id, grantee_kind, role) ON grants TO authz_writer;
+GRANT DELETE ON user_grants TO authz_writer;
+GRANT INSERT (organization_namespace_id, organization_id, resource_id, user_id, role)
+  ON user_grants TO authz_writer;
 GRANT DELETE ON resources TO authz_writer;
 
 CREATE FUNCTION authz_write.require_support_expiry(target_user UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   -- A row version change makes stale snapshots fail serialization.
-  UPDATE public.users SET kind = kind WHERE id = target_user;
+  UPDATE public.users SET id = id WHERE id = target_user;
   IF EXISTS (
     SELECT 1 FROM public.platform_operators operator
-    JOIN public.grants permission ON permission.grantee_id = operator.id
+    JOIN public.user_grants permission
+      ON permission.user_id = operator.id
     WHERE operator.id = target_user
       AND (permission.expires_at IS NULL OR NOT pg_catalog.isfinite(permission.expires_at))
   ) THEN
@@ -41,7 +44,7 @@ $$;
 CREATE FUNCTION authz_write.check_grant_support_expiry() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  PERFORM authz_write.require_support_expiry(NEW.grantee_id);
+  PERFORM authz_write.require_support_expiry(NEW.user_id);
   RETURN NEW;
 END
 $$;
@@ -54,71 +57,102 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER grants_support_expiry AFTER INSERT ON grants
-  FOR EACH ROW WHEN (NEW.grantee_kind = 'user' AND (NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at)))
+CREATE TRIGGER user_grants_support_expiry AFTER INSERT ON user_grants
+  FOR EACH ROW WHEN ((NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at)))
   EXECUTE FUNCTION authz_write.check_grant_support_expiry();
-CREATE TRIGGER grants_update_support_expiry AFTER UPDATE ON grants
-  FOR EACH ROW WHEN (NEW.grantee_kind = 'user' AND (NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at))
-    AND (OLD.grantee_id, OLD.grantee_kind, OLD.expires_at) IS DISTINCT FROM (NEW.grantee_id, NEW.grantee_kind, NEW.expires_at))
+CREATE TRIGGER user_grants_update_support_expiry AFTER UPDATE ON user_grants
+  FOR EACH ROW WHEN ((NEW.expires_at IS NULL OR NOT isfinite(NEW.expires_at))
+    AND (OLD.user_id, OLD.expires_at)
+      IS DISTINCT FROM (NEW.user_id, NEW.expires_at))
   EXECUTE FUNCTION authz_write.check_grant_support_expiry();
 CREATE TRIGGER platform_operators_support_expiry AFTER INSERT ON platform_operators
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_operator_support_expiry();
 CREATE TRIGGER platform_operators_update_support_expiry AFTER UPDATE ON platform_operators
-  FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.check_operator_support_expiry();
+  FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id)
+  EXECUTE FUNCTION authz_write.check_operator_support_expiry();
 
+-- Runs after the row passed its insert policy, so a refused row writes no grantee.
 CREATE FUNCTION authz_write.insert_grantee() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  INSERT INTO public.grantees (id, kind) VALUES (NEW.id, NEW.kind)
-    ON CONFLICT (id, kind) DO NOTHING;
-  RETURN NEW;
+  INSERT INTO public.grantees (namespace_id, id, kind) VALUES (NEW.namespace_id, NEW.id, NEW.kind)
+    ON CONFLICT (namespace_id, id, kind) DO NOTHING;
+  RETURN NULL;
 END
 $$;
 
 CREATE FUNCTION authz_write.delete_grantee() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  DELETE FROM public.grantees WHERE id = OLD.id;
+  DELETE FROM public.grantees WHERE namespace_id = OLD.namespace_id AND id = OLD.id;
   RETURN NULL;
 END
 $$;
 
+-- Runs after the row passed its insert policy, so a refused or skipped row writes no namespace.
 CREATE FUNCTION authz_write.insert_namespace() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  INSERT INTO public.namespaces (user_id) VALUES (NEW.id);
-  RETURN NEW;
+  INSERT INTO public.namespaces (id) VALUES (NEW.owned_namespace_id);
+  RETURN NULL;
 END
 $$;
 
 CREATE TRIGGER users_namespace AFTER INSERT ON users
   FOR EACH ROW EXECUTE FUNCTION authz_write.insert_namespace();
+CREATE TRIGGER app_installations_namespace AFTER INSERT ON app_installations
+  FOR EACH ROW EXECUTE FUNCTION authz_write.insert_namespace();
 
-CREATE TRIGGER users_grantee BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
-CREATE TRIGGER users_grantee_removed AFTER DELETE ON users FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER users_grantee_rekeyed AFTER UPDATE ON users FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER organizations_grantee BEFORE INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER organizations_grantee AFTER INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER organizations_grantee_key_changed AFTER UPDATE ON organizations
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER organizations_grantee_removed AFTER DELETE ON organizations FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER organizations_grantee_rekeyed AFTER UPDATE ON organizations FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER teams_grantee BEFORE INSERT ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER organizations_grantee_rekeyed AFTER UPDATE ON organizations
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER teams_grantee AFTER INSERT ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER teams_grantee_key_changed AFTER UPDATE ON teams
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER teams_grantee_removed AFTER DELETE ON teams FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER teams_grantee_rekeyed AFTER UPDATE ON teams FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER share_links_grantee BEFORE INSERT ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER teams_grantee_rekeyed AFTER UPDATE ON teams
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER share_links_grantee AFTER INSERT ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER share_links_grantee_key_changed AFTER UPDATE ON share_links
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.insert_grantee();
 CREATE TRIGGER share_links_grantee_removed AFTER DELETE ON share_links FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER share_links_grantee_rekeyed AFTER UPDATE ON share_links FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER app_installations_grantee BEFORE INSERT ON app_installations FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
-CREATE TRIGGER app_installations_grantee_removed AFTER DELETE ON app_installations FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
-CREATE TRIGGER app_installations_grantee_rekeyed AFTER UPDATE ON app_installations FOR EACH ROW WHEN (OLD.id IS DISTINCT FROM NEW.id) EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER share_links_grantee_rekeyed AFTER UPDATE ON share_links
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER app_installations_grantee AFTER INSERT ON app_installations
+  FOR EACH ROW EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER app_installations_grantee_key_changed AFTER UPDATE ON app_installations
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.insert_grantee();
+CREATE TRIGGER app_installations_grantee_removed AFTER DELETE ON app_installations
+  FOR EACH ROW EXECUTE FUNCTION authz_write.delete_grantee();
+CREATE TRIGGER app_installations_grantee_rekeyed AFTER UPDATE ON app_installations
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id) IS DISTINCT FROM (NEW.namespace_id, NEW.id))
+  EXECUTE FUNCTION authz_write.delete_grantee();
 
 CREATE FUNCTION authz_write.check_grantee_subtype() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.grantees grantee WHERE grantee.id = NEW.id AND grantee.kind = NEW.kind) AND NOT (CASE NEW.kind
-    WHEN 'user' THEN EXISTS (SELECT 1 FROM public.users principal WHERE principal.id = NEW.id)
-    WHEN 'organization' THEN EXISTS (SELECT 1 FROM public.organizations organization WHERE organization.id = NEW.id)
-    WHEN 'team' THEN EXISTS (SELECT 1 FROM public.teams team WHERE team.id = NEW.id)
-    WHEN 'link' THEN EXISTS (SELECT 1 FROM public.share_links link WHERE link.id = NEW.id)
-    WHEN 'installation' THEN EXISTS (SELECT 1 FROM public.app_installations installation WHERE installation.id = NEW.id)
+  IF EXISTS (
+    SELECT 1 FROM public.grantees grantee
+    WHERE grantee.namespace_id = NEW.namespace_id AND grantee.id = NEW.id AND grantee.kind = NEW.kind
+  ) AND NOT (CASE NEW.kind
+    WHEN 'organization' THEN EXISTS (SELECT 1 FROM public.organizations organization
+      WHERE organization.namespace_id = NEW.namespace_id AND organization.id = NEW.id)
+    WHEN 'team' THEN EXISTS (SELECT 1 FROM public.teams team
+      WHERE team.namespace_id = NEW.namespace_id AND team.id = NEW.id)
+    WHEN 'link' THEN EXISTS (SELECT 1 FROM public.share_links link
+      WHERE link.namespace_id = NEW.namespace_id AND link.id = NEW.id)
+    WHEN 'installation' THEN EXISTS (SELECT 1 FROM public.app_installations installation
+      WHERE installation.namespace_id = NEW.namespace_id AND installation.id = NEW.id)
   END) THEN
     RAISE EXCEPTION 'grantee % requires its % row', NEW.id, NEW.kind USING ERRCODE = 'check_violation';
   END IF;
@@ -127,7 +161,7 @@ END
 $$;
 
 CREATE CONSTRAINT TRIGGER grantees_subtype_required AFTER INSERT OR UPDATE ON grantees
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind IN ('user', 'organization', 'team', 'link', 'installation'))
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind IN ('organization', 'team', 'link', 'installation'))
   EXECUTE FUNCTION authz_write.check_grantee_subtype();
 
 CREATE FUNCTION authz.stamp_archived_at() RETURNS TRIGGER
@@ -205,12 +239,18 @@ CREATE TRIGGER grants_move_copy_archive BEFORE UPDATE ON grants
   FOR EACH ROW WHEN (OLD.resource_id IS DISTINCT FROM NEW.resource_id)
   EXECUTE FUNCTION authz_write.copy_grant_archive();
 
-CREATE FUNCTION authz_write.lock_organization(target_organization UUID) RETURNS BOOLEAN
+CREATE TRIGGER user_grants_copy_archive BEFORE INSERT ON user_grants
+  FOR EACH ROW EXECUTE FUNCTION authz_write.copy_grant_archive();
+CREATE TRIGGER user_grants_move_copy_archive BEFORE UPDATE ON user_grants
+  FOR EACH ROW WHEN (OLD.resource_id IS DISTINCT FROM NEW.resource_id)
+  EXECUTE FUNCTION authz_write.copy_grant_archive();
+
+CREATE FUNCTION authz_write.lock_organization(target_namespace UUID, target_organization UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   PERFORM authz.refuse_repeatable_read();
   PERFORM organization.id FROM public.organizations organization
-    WHERE organization.id = target_organization FOR NO KEY UPDATE;
+    WHERE organization.namespace_id = target_namespace AND organization.id = target_organization FOR NO KEY UPDATE;
   RETURN FOUND;
 END
 $$;
@@ -222,25 +262,26 @@ DECLARE
   descendant_depth INTEGER;
   contains_cycle BOOLEAN;
 BEGIN
-  PERFORM authz_write.lock_organization(NEW.organization_id);
-  WITH RECURSIVE ancestors (id, depth) AS (
-    SELECT NEW.parent_id, 1 WHERE NEW.parent_id IS NOT NULL
+  PERFORM authz_write.lock_organization(NEW.organization_namespace_id, NEW.organization_id);
+  WITH RECURSIVE ancestors (namespace_id, id, depth) AS (
+    SELECT NEW.parent_namespace_id, NEW.parent_id, 1 WHERE NEW.parent_id IS NOT NULL
     UNION
-    SELECT team.parent_id, ancestors.depth + 1 FROM public.teams team
-    JOIN ancestors ON team.id = ancestors.id
+    SELECT team.parent_namespace_id, team.parent_id, ancestors.depth + 1 FROM public.teams team
+    JOIN ancestors ON team.namespace_id = ancestors.namespace_id AND team.id = ancestors.id
     WHERE team.parent_id IS NOT NULL
-      AND ancestors.depth <= authz.max_tree_depth() AND ancestors.id <> NEW.id
+      AND ancestors.depth <= authz.max_tree_depth()
+      AND (ancestors.namespace_id, ancestors.id) <> (NEW.namespace_id, NEW.id)
   )
-  SELECT max(ancestors.depth), bool_or(ancestors.id = NEW.id)
+  SELECT max(ancestors.depth), bool_or(ancestors.namespace_id = NEW.namespace_id AND ancestors.id = NEW.id)
     INTO ancestor_depth, contains_cycle FROM ancestors;
   IF contains_cycle THEN
     RAISE EXCEPTION 'team % would become its own ancestor', NEW.id USING ERRCODE = 'check_violation';
   END IF;
-  WITH RECURSIVE descendants (id, depth) AS (
-    SELECT NEW.id, 1
+  WITH RECURSIVE descendants (namespace_id, id, depth) AS (
+    SELECT NEW.namespace_id, NEW.id, 1
     UNION
-    SELECT team.id, descendants.depth + 1 FROM public.teams team
-    JOIN descendants ON team.parent_id = descendants.id
+    SELECT team.namespace_id, team.id, descendants.depth + 1 FROM public.teams team
+    JOIN descendants ON team.parent_namespace_id = descendants.namespace_id AND team.parent_id = descendants.id
     WHERE descendants.depth <= authz.max_tree_depth()
   )
   SELECT max(descendants.depth) INTO descendant_depth FROM descendants;
@@ -258,7 +299,7 @@ DECLARE
   descendant_depth INTEGER;
   contains_cycle BOOLEAN;
 BEGIN
-  PERFORM authz_write.lock_organization(NEW.organization_id);
+  PERFORM authz_write.lock_organization(NEW.organization_namespace_id, NEW.organization_id);
   WITH RECURSIVE ancestors (id, depth) AS (
     SELECT NEW.parent_id, 1
     UNION
@@ -290,35 +331,42 @@ $$;
 CREATE TRIGGER teams_shape BEFORE INSERT ON teams
   FOR EACH ROW EXECUTE FUNCTION authz_write.check_team_parent();
 CREATE TRIGGER teams_update_shape BEFORE UPDATE ON teams
-  FOR EACH ROW WHEN ((OLD.id, OLD.organization_id, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.organization_id, NEW.parent_id))
+  FOR EACH ROW WHEN ((OLD.namespace_id, OLD.id, OLD.organization_namespace_id, OLD.organization_id,
+      OLD.parent_namespace_id, OLD.parent_id)
+    IS DISTINCT FROM (NEW.namespace_id, NEW.id, NEW.organization_namespace_id, NEW.organization_id,
+      NEW.parent_namespace_id, NEW.parent_id))
   EXECUTE FUNCTION authz_write.check_team_parent();
 CREATE TRIGGER resources_shape BEFORE INSERT ON resources
   FOR EACH ROW WHEN (NEW.kind IN ('folder', 'project'))
   EXECUTE FUNCTION authz_write.check_resource_parent();
 CREATE TRIGGER resources_update_shape BEFORE UPDATE ON resources
   FOR EACH ROW WHEN (NEW.kind IN ('folder', 'project')
-    AND (OLD.id, OLD.organization_id, OLD.kind, OLD.parent_id) IS DISTINCT FROM (NEW.id, NEW.organization_id, NEW.kind, NEW.parent_id))
+    AND (OLD.id, OLD.organization_namespace_id, OLD.organization_id, OLD.kind, OLD.parent_id)
+      IS DISTINCT FROM (NEW.id, NEW.organization_namespace_id, NEW.organization_id, NEW.kind, NEW.parent_id))
   EXECUTE FUNCTION authz_write.check_resource_parent();
 
-CREATE FUNCTION authz_write.has_active_admin(target_organization UUID) RETURNS BOOLEAN
+CREATE FUNCTION authz_write.has_active_admin(target_namespace UUID, target_organization UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.grants permission
+    SELECT 1 FROM public.user_grants permission
     JOIN public.memberships membership
-      ON membership.organization_id = permission.organization_id AND membership.user_id = permission.grantee_id
-    WHERE permission.resource_id = target_organization AND permission.organization_id = target_organization
-      AND permission.role = 'admin' AND permission.expires_at IS NULL AND permission.grantee_kind = 'user'
+      ON membership.organization_namespace_id = permission.organization_namespace_id
+        AND membership.organization_id = permission.organization_id
+        AND membership.user_id = permission.user_id
+    WHERE permission.resource_id = target_organization
+      AND permission.organization_namespace_id = target_namespace AND permission.organization_id = target_organization
+      AND permission.role = 'admin' AND permission.expires_at IS NULL
       AND membership.state = 'active'
   )
 $$;
 
-CREATE FUNCTION authz_write.require_organization_admin(target_organization UUID) RETURNS VOID
+CREATE FUNCTION authz_write.require_organization_admin(target_namespace UUID, target_organization UUID) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF NOT authz_write.lock_organization(target_organization) THEN
+  IF NOT authz_write.lock_organization(target_namespace, target_organization) THEN
     RETURN;
   END IF;
-  IF NOT authz_write.has_active_admin(target_organization) THEN
+  IF NOT authz_write.has_active_admin(target_namespace, target_organization) THEN
     RAISE EXCEPTION 'organization % would lose its last admin', target_organization USING ERRCODE = 'check_violation';
   END IF;
 END
@@ -327,20 +375,20 @@ $$;
 CREATE FUNCTION authz_write.check_last_admin() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  PERFORM authz_write.require_organization_admin(OLD.organization_id);
+  PERFORM authz_write.require_organization_admin(OLD.organization_namespace_id, OLD.organization_id);
   RETURN NULL;
 END
 $$;
 
-CREATE CONSTRAINT TRIGGER grants_last_admin AFTER UPDATE OR DELETE ON grants
+CREATE CONSTRAINT TRIGGER user_grants_last_admin AFTER UPDATE OR DELETE ON user_grants
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-  WHEN (OLD.role = 'admin' AND OLD.expires_at IS NULL AND OLD.grantee_kind = 'user' AND OLD.resource_id = OLD.organization_id)
+  WHEN (OLD.role = 'admin' AND OLD.expires_at IS NULL AND OLD.resource_id = OLD.organization_id)
   EXECUTE FUNCTION authz_write.check_last_admin();
 
 CREATE FUNCTION authz_write.check_membership_admin() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  PERFORM authz_write.require_organization_admin(OLD.organization_id);
+  PERFORM authz_write.require_organization_admin(OLD.organization_namespace_id, OLD.organization_id);
   RETURN NULL;
 END
 $$;
@@ -352,10 +400,13 @@ CREATE CONSTRAINT TRIGGER memberships_last_admin AFTER UPDATE OR DELETE ON membe
 CREATE FUNCTION authz_write.check_founded() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM ONLY public.organizations organization WHERE organization.id = NEW.id) THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM ONLY public.organizations organization
+    WHERE organization.namespace_id = NEW.namespace_id AND organization.id = NEW.id
+  ) THEN
     RETURN NULL;
   END IF;
-  IF NOT authz_write.has_active_admin(NEW.id) THEN
+  IF NOT authz_write.has_active_admin(NEW.namespace_id, NEW.id) THEN
     RAISE EXCEPTION 'organization % requires an active admin', NEW.id USING ERRCODE = 'check_violation';
   END IF;
   RETURN NULL;
@@ -368,7 +419,10 @@ CREATE CONSTRAINT TRIGGER organizations_admin_required AFTER INSERT ON organizat
 CREATE FUNCTION authz_write.check_organization_identifier() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.audit_events event WHERE event.organization_id = NEW.id) THEN
+  IF EXISTS (
+    SELECT 1 FROM public.audit_events event
+    WHERE event.organization_namespace_id = NEW.namespace_id AND event.organization_id = NEW.id
+  ) THEN
     RAISE EXCEPTION 'organization % was deleted and its identifier is retired', NEW.id USING ERRCODE = 'unique_violation';
   END IF;
   RETURN NULL;
@@ -381,22 +435,25 @@ CREATE CONSTRAINT TRIGGER organizations_identifier_retired AFTER INSERT ON organ
 CREATE FUNCTION authz_write.stamp_founded_at() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  UPDATE public.organizations SET founded_at = now() WHERE id = NEW.organization_id AND founded_at IS NULL;
+  UPDATE public.organizations SET founded_at = now()
+    WHERE namespace_id = NEW.organization_namespace_id AND id = NEW.organization_id AND founded_at IS NULL;
   RETURN NULL;
 END
 $$;
 
-CREATE TRIGGER grants_founded AFTER INSERT ON grants
+CREATE TRIGGER user_grants_founded AFTER INSERT ON user_grants
   FOR EACH ROW WHEN (NEW.resource_id = NEW.organization_id AND NEW.role = 'admin')
   EXECUTE FUNCTION authz_write.stamp_founded_at();
 
 CREATE FUNCTION authz_write.grant_founder_admin() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  INSERT INTO public.grants (organization_id, resource_id, grantee_id, grantee_kind, role)
-    SELECT organization.id, organization.id, NEW.user_id, 'user', 'admin'
+  INSERT INTO public.user_grants
+    (organization_namespace_id, organization_id, resource_id, user_id, role)
+    SELECT organization.namespace_id, organization.id, organization.id, NEW.user_id, 'admin'
     FROM public.organizations organization
-    WHERE organization.id = NEW.organization_id AND organization.created_by_id = NEW.user_id
+    WHERE organization.namespace_id = NEW.organization_namespace_id AND organization.id = NEW.organization_id
+      AND organization.created_by_id = NEW.user_id
       AND organization.founded_at IS NULL;
   RETURN NULL;
 END
@@ -408,8 +465,9 @@ CREATE TRIGGER memberships_founder_admin AFTER INSERT ON memberships
 CREATE FUNCTION authz_write.delete_membership_grants() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  DELETE FROM public.grants
-    WHERE organization_id = OLD.organization_id AND grantee_id = OLD.user_id AND grantee_kind = 'user';
+  DELETE FROM public.user_grants
+    WHERE organization_namespace_id = OLD.organization_namespace_id AND organization_id = OLD.organization_id
+      AND user_id = OLD.user_id;
   RETURN NULL;
 END
 $$;
@@ -420,7 +478,8 @@ CREATE TRIGGER memberships_grants_removed AFTER DELETE ON memberships
 CREATE FUNCTION authz_write.accept_invitation() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  UPDATE public.invitations SET accepted_by_id = NEW.user_id WHERE id = NEW.invitation_id;
+  UPDATE public.invitations SET accepted_by_id = NEW.user_id
+    WHERE id = NEW.invitation_id;
   RETURN NULL;
 END
 $$;
@@ -439,10 +498,15 @@ BEGIN
     changed := NEW;
   END IF;
   INSERT INTO public.audit_events
-    (at, organization_id, actor_id, original_actor_id, installation_id, table_name, operation, old_row, new_row)
+    (at, organization_namespace_id, organization_id, actor_id,
+      original_actor_id, installation_namespace_id, installation_id,
+      table_name, operation, old_row, new_row)
   VALUES (
-    now(), changed.organization_id, authz.caller_id(), authz.original_actor_id(),
-    authz.acting_installation_id(), TG_TABLE_NAME, TG_OP::authz.audit_operation,
+    now(), changed.organization_namespace_id, changed.organization_id,
+    authz.caller_id(),
+    authz.original_actor_id(),
+    authz.acting_installation_namespace_id(), authz.acting_installation_id(),
+    TG_TABLE_NAME, TG_OP::authz.audit_operation,
     CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE to_jsonb(OLD) END,
     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE to_jsonb(NEW) END
   );
@@ -454,10 +518,14 @@ CREATE FUNCTION authz_write.record_platform_audit_event() RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   INSERT INTO public.platform_audit_events
-    (at, actor_id, original_actor_id, installation_id, table_name, operation, old_row, new_row)
+    (at, actor_id, original_actor_id,
+      installation_namespace_id, installation_id, table_name, operation, old_row, new_row)
   VALUES (
-    now(), authz.caller_id(), authz.original_actor_id(),
-    authz.acting_installation_id(), TG_TABLE_NAME, TG_OP::authz.audit_operation,
+    now(),
+    authz.caller_id(),
+    authz.original_actor_id(),
+    authz.acting_installation_namespace_id(), authz.acting_installation_id(),
+    TG_TABLE_NAME, TG_OP::authz.audit_operation,
     CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE to_jsonb(OLD) END,
     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE to_jsonb(NEW) END
   );
@@ -482,13 +550,22 @@ CREATE TRIGGER grants_audit AFTER INSERT OR DELETE ON grants
 CREATE TRIGGER grants_update_audit AFTER UPDATE ON grants
   FOR EACH ROW WHEN (to_jsonb(OLD) - 'resource_archived' IS DISTINCT FROM to_jsonb(NEW) - 'resource_archived')
   EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER user_grants_audit AFTER INSERT OR DELETE ON user_grants
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER user_grants_update_audit AFTER UPDATE ON user_grants
+  FOR EACH ROW WHEN (to_jsonb(OLD) - 'resource_archived' IS DISTINCT FROM to_jsonb(NEW) - 'resource_archived')
+  EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER share_links_audit AFTER INSERT OR DELETE ON share_links
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER share_links_update_audit AFTER UPDATE ON share_links
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER organization_blocks_audit AFTER INSERT OR DELETE ON organization_blocks
+CREATE TRIGGER user_blocks_audit AFTER INSERT OR DELETE ON user_blocks
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
-CREATE TRIGGER organization_blocks_update_audit AFTER UPDATE ON organization_blocks
+CREATE TRIGGER user_blocks_update_audit AFTER UPDATE ON user_blocks
+  FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER installation_blocks_audit AFTER INSERT OR DELETE ON installation_blocks
+  FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
+CREATE TRIGGER installation_blocks_update_audit AFTER UPDATE ON installation_blocks
   FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION authz_write.record_audit_event();
 CREATE TRIGGER app_installations_audit AFTER INSERT OR DELETE ON app_installations
   FOR EACH ROW EXECUTE FUNCTION authz_write.record_audit_event();
@@ -540,11 +617,11 @@ ALTER FUNCTION authz.stamp_revoked_at() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_resource_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.copy_grant_archive() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.inherit_resource_archive() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.lock_organization(UUID) OWNER TO authz_writer;
+ALTER FUNCTION authz_write.lock_organization(UUID, UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_team_parent() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_resource_parent() OWNER TO authz_writer;
-ALTER FUNCTION authz_write.has_active_admin(UUID) OWNER TO authz_writer;
-ALTER FUNCTION authz_write.require_organization_admin(UUID) OWNER TO authz_writer;
+ALTER FUNCTION authz_write.has_active_admin(UUID, UUID) OWNER TO authz_writer;
+ALTER FUNCTION authz_write.require_organization_admin(UUID, UUID) OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_last_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.check_membership_admin() OWNER TO authz_writer;
 ALTER FUNCTION authz_write.delete_membership_grants() OWNER TO authz_writer;

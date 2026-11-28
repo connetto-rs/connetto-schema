@@ -808,7 +808,7 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 [[package]]
 name = "sql-traits"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sql-traits?branch=main#87988bc4a558498481b31a7bea98ed109f927e64"
+source = "git+https://github.com/connetto-rs/sql-traits?branch=main#1a714e9e3295fe70b69c01e4e543f52b02408062"
 dependencies = [
  "geometric-traits",
  "once_cell",
@@ -829,8 +829,8 @@ dependencies = [
 
 [[package]]
 name = "sql-values"
-version = "0.6.0"
-source = "git+https://github.com/connetto-rs/sql-values?branch=main#bee0f26da9575f1f0ab38550e3188cb25590058e"
+version = "0.7.0"
+source = "git+https://github.com/connetto-rs/sql-values?branch=main#64b4c38ef1dd720155f25bf80611110b9b5c867b"
 dependencies = [
  "jiff",
  "thiserror",
@@ -839,7 +839,7 @@ dependencies = [
 [[package]]
 name = "sql_relations"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/synql?branch=main#27f477e31faca20651ad8ebe0938bc4802994c63"
+source = "git+https://github.com/connetto-rs/synql?branch=main#7f81ad33634db6519afab76e8a3bcf09071884fd"
 dependencies = [
  "sql-traits",
  "sqlparser",
@@ -848,7 +848,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#ca4383ffe1f822583d837ee5c3d0977198887d40"
 dependencies = [
  "log",
  "recursive",
@@ -858,7 +858,7 @@ dependencies = [
 [[package]]
 name = "sqlparser-canonicalize"
 version = "0.2.1"
-source = "git+https://github.com/connetto-rs/sqlparser-canonicalize?branch=main#07e59506f43915ac188a99ce0afa677f14ed82f4"
+source = "git+https://github.com/connetto-rs/sqlparser-canonicalize?branch=main#f9374b78ea75463763ea30e6b591b17e69ae390a"
 dependencies = [
  "recursive",
  "seahash",
@@ -869,7 +869,7 @@ dependencies = [
 [[package]]
 name = "sqlparser-expr-eval"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#c5b7a10d1d9a0d118f6b209c3e40341c531a0621"
+source = "git+https://github.com/connetto-rs/sqlparser-expr-eval?branch=main#4ee69a5f141b58a7ffe9b199d16efd9fd629c64b"
 dependencies = [
  "quine-mc_cluskey",
  "rpds",
@@ -902,7 +902,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#323a60ea7bcd2e593cfea2f68fc851bf873f687e"
+source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#ca4383ffe1f822583d837ee5c3d0977198887d40"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -986,7 +986,7 @@ dependencies = [
 [[package]]
 name = "synql"
 version = "0.1.0"
-source = "git+https://github.com/connetto-rs/synql?branch=main#27f477e31faca20651ad8ebe0938bc4802994c63"
+source = "git+https://github.com/connetto-rs/synql?branch=main#7f81ad33634db6519afab76e8a3bcf09071884fd"
 dependencies = [
  "enumflags2",
  "geometric-traits",

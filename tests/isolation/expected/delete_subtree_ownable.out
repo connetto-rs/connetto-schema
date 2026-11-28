@@ -3,8 +3,8 @@ Parsed test spec with 3 sessions
 starting permutation: writer_begin writer_insert remover_begin remover_delete writer_finish remover_finish remaining
 step writer_begin: BEGIN;
 step writer_insert: 
-  INSERT INTO resources (id, organization_id, parent_id, created_by_id, kind, parent_kind)
-    VALUES ('00000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000002', 'ownable', 'project');
+  INSERT INTO resources (id, organization_namespace_id, organization_id, parent_id, created_by_id, kind, parent_kind)
+    VALUES ('00000000-0000-0000-0000-000000000006', (SELECT authz.caller_namespace()), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000002', 'ownable', 'project');
 
 step remover_begin: BEGIN;
 step remover_delete: DELETE FROM resources WHERE id = '00000000-0000-0000-0000-000000000003'; <waiting ...>
@@ -27,8 +27,8 @@ step remover_begin: BEGIN;
 step remover_delete: DELETE FROM resources WHERE id = '00000000-0000-0000-0000-000000000003';
 step writer_begin: BEGIN;
 step writer_insert: 
-  INSERT INTO resources (id, organization_id, parent_id, created_by_id, kind, parent_kind)
-    VALUES ('00000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000002', 'ownable', 'project');
+  INSERT INTO resources (id, organization_namespace_id, organization_id, parent_id, created_by_id, kind, parent_kind)
+    VALUES ('00000000-0000-0000-0000-000000000006', (SELECT authz.caller_namespace()), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000002', 'ownable', 'project');
  <waiting ...>
 step remover_finish: COMMIT;
 step writer_insert: <... completed>

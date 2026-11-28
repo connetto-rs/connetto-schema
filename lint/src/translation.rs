@@ -23,6 +23,10 @@ pub const ATTRIBUTE_COLUMNS: &[(&str, &str)] = &[
     ("grants", "organization_id"),
     ("grants", "resource_id"),
     ("grants", "resource_archived"),
+    ("user_grants", "role"),
+    ("user_grants", "organization_id"),
+    ("user_grants", "resource_id"),
+    ("user_grants", "resource_archived"),
     ("invitations", "accepted_by_id"),
     ("invitations", "expires_at"),
     ("memberships", "invitation_id"),
@@ -48,14 +52,20 @@ pub fn deployment() -> Deployment {
         SessionSetting::value("app.user_id", SettingValue::Caller(DataType::Uuid))
             .expect("caller setting")
             .may_be_unset(),
+        SessionSetting::value(
+            "app.installation_namespace_id",
+            SettingValue::Scalar(DataType::Uuid),
+        )
+        .expect("installation namespace setting")
+        .may_be_unset(),
         SessionSetting::value("app.installation_id", SettingValue::Scalar(DataType::Uuid))
             .expect("installation setting")
             .may_be_unset(),
         SessionSetting::value(
             "app.link_ids",
             SettingValue::Set {
-                element: DataType::Uuid,
-                packing: SetPacking::Delimited(",".into()),
+                element: DataType::JSONB,
+                packing: SetPacking::JsonArray,
             },
         )
         .expect("link setting")
@@ -64,11 +74,15 @@ pub fn deployment() -> Deployment {
             .expect("email setting")
             .may_be_unset(),
     ];
-    Deployment::new("app", ["app"], settings).expect("deployment")
+    Deployment::new("app", ["app"], settings)
+        .expect("deployment")
+        .with_settings_set_together(["app.installation_namespace_id", "app.installation_id"])
+        .expect("both installation settings are declared")
 }
 
 /// A registry confirming [`ATTRIBUTE_COLUMNS`] and declaring every
-/// set-returning helper of the `authz` schema in `database`.
+/// set-returning helper of the `authz` schema in `database` but
+/// `authz.caller_namespace()`, which the translator expands into its lookups.
 #[must_use]
 pub fn registry(database: &ParserDB) -> FunctionRegistry {
     let mut registry = FunctionRegistry::new();
@@ -79,7 +93,9 @@ pub fn registry(database: &ParserDB) -> FunctionRegistry {
         database
             .functions()
             .filter(|function| {
-                function.target_name().schema() == Some("authz") && function.returns_set()
+                function.target_name().schema() == Some("authz")
+                    && function.returns_set()
+                    && function.name() != "caller_namespace"
             })
             .map(|function| format!("authz.{}", function.name())),
     );

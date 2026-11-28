@@ -2,14 +2,14 @@ Parsed test spec with 3 sessions
 
 starting permutation: first_begin first_write second_begin second_write first_finish second_finish invariant
 step first_begin: BEGIN ISOLATION LEVEL READ COMMITTED;
-step first_write: INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'user', 'reader');
+step first_write: INSERT INTO user_grants (resource_id, organization_namespace_id, organization_id, user_id, role) VALUES ('00000000-0000-0000-0000-000000000001', (SELECT authz.caller_namespace()), '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006', 'reader');
 step second_begin: BEGIN ISOLATION LEVEL READ COMMITTED;
 step second_write: INSERT INTO platform_operators (id) VALUES ('00000000-0000-0000-0000-000000000006'); <waiting ...>
 step first_finish: COMMIT;
 step second_write: <... completed>
 ERROR:  support grants require a finite expiry
 step second_finish: ROLLBACK;
-step invariant: SELECT count(*) AS permanent_operator_grants FROM grants permission JOIN platform_operators operator ON operator.id = permission.grantee_id WHERE operator.id = '00000000-0000-0000-0000-000000000006' AND permission.expires_at IS NULL;
+step invariant: SELECT count(*) AS permanent_operator_grants FROM user_grants permission JOIN platform_operators operator ON operator.id = permission.user_id WHERE operator.id = '00000000-0000-0000-0000-000000000006' AND permission.expires_at IS NULL;
 permanent_operator_grants
 -------------------------
                         0

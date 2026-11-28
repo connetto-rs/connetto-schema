@@ -4,23 +4,21 @@ BEGIN;
 \ir ../fixture.sql
 SELECT plan(21);
 
-SET ROLE identity_writer;
-INSERT INTO users (id) VALUES ('10000000-0000-7000-8000-000000000001'), ('10000000-0000-7000-8000-000000000002');
-RESET ROLE;
+SELECT pg_temp.provision('10000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002');
 SELECT pg_temp.act('10000000-0000-7000-8000-000000000001');
 SET ROLE app;
-SELECT pg_temp.found_organization('20000000-0000-7000-8000-000000000001');
-SELECT pg_temp.add_member('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002');
+SELECT pg_temp.found_organization(pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001');
+SELECT pg_temp.add_member(pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002');
 SELECT pg_temp.create_child_resource('40000000-0000-7000-8000-000000000001', 'folder', '20000000-0000-7000-8000-000000000001');
 SELECT pg_temp.create_child_resource('40000000-0000-7000-8000-000000000002', 'folder', '40000000-0000-7000-8000-000000000001');
 SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000001', 'project', '40000000-0000-7000-8000-000000000002');
 SELECT pg_temp.create_child_resource('50000000-0000-7000-8000-000000000002', 'project', '20000000-0000-7000-8000-000000000001');
-SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
+SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000001', pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
 SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 
 UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000000000001';
-SELECT throws_ok($statement$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader')$statement$, '42501', NULL, 'folder archive refuses grants on a nested ownable');
+SELECT throws_ok($statement$INSERT INTO user_grants (resource_id, organization_namespace_id, organization_id, user_id, role) VALUES ('60000000-0000-7000-8000-000000000001', pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'reader')$statement$, '42501', NULL, 'folder archive refuses grants on a nested ownable');
 SELECT is_empty($query$UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001' RETURNING id$query$, 'folder archive keeps a nested ownable in place');
 SELECT is_empty($query$DELETE FROM resources WHERE id = '60000000-0000-7000-8000-000000000001' RETURNING id$query$, 'folder archive keeps a nested ownable');
 SELECT is_empty($query$UPDATE resource_moves SET parent_id = '20000000-0000-7000-8000-000000000001' WHERE id = '50000000-0000-7000-8000-000000000001' RETURNING id$query$, 'folder archive keeps a nested project under its folder');
@@ -37,19 +35,19 @@ UPDATE resources SET archived_at = NULL WHERE id = '40000000-0000-7000-8000-0000
 SELECT results_eq($query$UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000002' WHERE id = '60000000-0000-7000-8000-000000000001' RETURNING parent_id$query$, $expected$VALUES ('50000000-0000-7000-8000-000000000002'::uuid)$expected$, 'restoring every archived ancestor frees the ownable');
 
 UPDATE resources SET archived_at = now() WHERE id = '20000000-0000-7000-8000-000000000001';
-SELECT throws_ok($statement$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('50000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader')$statement$, '42501', NULL, 'organization archive refuses grants on its projects');
+SELECT throws_ok($statement$INSERT INTO user_grants (resource_id, organization_namespace_id, organization_id, user_id, role) VALUES ('50000000-0000-7000-8000-000000000002', pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'reader')$statement$, '42501', NULL, 'organization archive refuses grants on its projects');
 UPDATE resources SET archived_at = NULL WHERE id = '20000000-0000-7000-8000-000000000001';
-SELECT lives_ok($statement$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('50000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader')$statement$, 'organization restore accepts grants on its projects');
+SELECT lives_ok($statement$INSERT INTO user_grants (resource_id, organization_namespace_id, organization_id, user_id, role) VALUES ('50000000-0000-7000-8000-000000000002', pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'reader')$statement$, 'organization restore accepts grants on its projects');
 
 UPDATE resources SET archived_at = now() WHERE id = '60000000-0000-7000-8000-000000000001';
-SELECT throws_ok($statement$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader')$statement$, '42501', NULL, 'ownable archive refuses grants on it');
+SELECT throws_ok($statement$INSERT INTO user_grants (resource_id, organization_namespace_id, organization_id, user_id, role) VALUES ('60000000-0000-7000-8000-000000000001', pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'reader')$statement$, '42501', NULL, 'ownable archive refuses grants on it');
 SELECT is_empty($query$UPDATE resource_moves SET parent_id = '50000000-0000-7000-8000-000000000001' WHERE id = '60000000-0000-7000-8000-000000000001' RETURNING id$query$, 'ownable archive keeps it in place');
 UPDATE resources SET archived_at = NULL WHERE id = '60000000-0000-7000-8000-000000000001';
-SELECT lives_ok($statement$INSERT INTO grants (resource_id, organization_id, grantee_id, grantee_kind, role) VALUES ('60000000-0000-7000-8000-000000000001', '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'user', 'reader')$statement$, 'ownable restore accepts grants on it');
+SELECT lives_ok($statement$INSERT INTO user_grants (resource_id, organization_namespace_id, organization_id, user_id, role) VALUES ('60000000-0000-7000-8000-000000000001', pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000002', 'reader')$statement$, 'ownable restore accepts grants on it');
 
 UPDATE resources SET archived_at = now() WHERE id = '40000000-0000-7000-8000-000000000001';
 RESET ROLE;
-SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000002', '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
+SELECT pg_temp.create_ownable('60000000-0000-7000-8000-000000000002', pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', '50000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001');
 SELECT lives_ok('SET CONSTRAINTS ALL IMMEDIATE', 'an ownable written into an archived project satisfies its archive keys');
 SELECT results_eq($query$SELECT inherits_archive, archived FROM resources WHERE id = '60000000-0000-7000-8000-000000000002'$query$, $expected$VALUES (TRUE, TRUE)$expected$, 'an ownable written into an archived project inherits its archive');
 SET CONSTRAINTS ALL DEFERRED;
@@ -59,7 +57,7 @@ SELECT results_eq($query$SELECT inherits_archive, archived FROM resources WHERE 
 SET CONSTRAINTS ALL DEFERRED;
 SET ROLE app;
 UPDATE resources SET archived_at = NULL WHERE id = '40000000-0000-7000-8000-000000000001';
-INSERT INTO resources (id, kind, organization_id, archived_at, parent_id, parent_kind) VALUES ('40000000-0000-7000-8000-000000000006', 'folder', '20000000-0000-7000-8000-000000000001', now(), '20000000-0000-7000-8000-000000000001', 'organization');
+INSERT INTO resources (id, kind, organization_namespace_id, organization_id, archived_at, parent_id, parent_kind) VALUES ('40000000-0000-7000-8000-000000000006', 'folder', pg_temp.namespace_of('10000000-0000-7000-8000-000000000001'), '20000000-0000-7000-8000-000000000001', now(), '20000000-0000-7000-8000-000000000001', 'organization');
 SELECT lives_ok('SET CONSTRAINTS ALL IMMEDIATE', 'a folder created archived satisfies its archive keys');
 SET CONSTRAINTS ALL DEFERRED;
 SELECT results_eq($query$SELECT archived, parent_archived FROM resources WHERE kind IN ('folder', 'project') AND id = '40000000-0000-7000-8000-000000000006'$query$, $expected$VALUES (TRUE, FALSE)$expected$, 'an archived folder retains its unarchived parent');
